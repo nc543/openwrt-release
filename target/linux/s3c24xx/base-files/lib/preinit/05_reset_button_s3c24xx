@@ -1,0 +1,16 @@
+#!/bin/sh
+
+. /lib/s3c24xx.sh
+
+enable_reset_button() {
+	if [ "$s3c2440_has_reset_button" = "true" ]; then
+		insmod input-core
+		insmod input-polldev
+		insmod gpio_buttons
+		insmod button-hotplug
+	fi
+}
+
+boot_hook_add preinit_main enable_reset_button
+
+

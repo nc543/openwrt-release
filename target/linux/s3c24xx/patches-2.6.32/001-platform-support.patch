@@ -1,0 +1,47 @@
+--- linux-2.6.32.26/arch/arm/mach-s3c2440/Kconfig.orig	2011-04-03 04:27:42.000000000 -0400
++++ linux-2.6.32.26/arch/arm/mach-s3c2440/Kconfig	2011-04-03 04:27:42.000000000 -0400
+@@ -99,14 +99,22 @@
+ config MACH_MINI2440
+ 	bool "MINI2440 development board"
+ 	select CPU_S3C2440
+-	select EEPROM_AT24
+-	select LEDS_TRIGGER_BACKLIGHT
+-	select SND_S3C24XX_SOC_S3C24XX_UDA134X
+ 	select S3C_DEV_NAND
+ 	select S3C_DEV_USB_HOST
++	select S3C2440_XTAL_12000000
+ 	help
+ 	  Say Y here to select support for the MINI2440. Is a 10cm x 10cm board
+ 	  available via various sources. It can come with a 3.5" or 7" touch LCD.
+ 
++config MACH_GEC2440
++	bool "GEC2440 development board"
++	select CPU_S3C2440
++	select S3C_DEV_NAND
++	select S3C_DEV_USB_HOST
++	select S3C2440_XTAL_12000000
++	help
++	  Say Y here to select support for the GEC2440. Is a 17cm x 17cm board
++	  available via various sources. It can come with a 3.5" touch LCD.
++
+ endmenu
+ 
+--- linux-2.6.32.26/arch/arm/mach-s3c2440/Makefile.orig	2011-04-03 04:36:31.000000000 -0400
++++ linux-2.6.32.26/arch/arm/mach-s3c2440/Makefile	2011-04-03 04:36:31.000000000 -0400
+@@ -23,3 +23,4 @@
+ obj-$(CONFIG_MACH_NEXCODER_2440) += mach-nexcoder.o
+ obj-$(CONFIG_MACH_AT2440EVB) += mach-at2440evb.o
+ obj-$(CONFIG_MACH_MINI2440) += mach-mini2440.o
++obj-$(CONFIG_MACH_GEC2440) += mach-gec2440.o
+ 
+--- linux-2.6.32.26/arch/arm/mach-s3c2440/mach-smdk2440.c.orig	2011-04-03 05:26:03.000000000 -0400
++++ linux-2.6.32.26/arch/arm/mach-s3c2440/mach-smdk2440.c	2011-04-03 05:26:03.000000000 -0400
+@@ -173,7 +173,7 @@
+ 	smdk_machine_init();
+ }
+ 
+-MACHINE_START(S3C2440, "SMDK2440")
++MACHINE_START(SMDK2440, "SMDK2440")
+ 	/* Maintainer: Ben Dooks <ben@fluff.org> */
+ 	.phys_io	= S3C2410_PA_UART,
+ 	.io_pg_offst	= (((u32)S3C24XX_VA_UART) >> 18) & 0xfffc,
