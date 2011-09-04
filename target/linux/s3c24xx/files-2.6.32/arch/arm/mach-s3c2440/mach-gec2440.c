@@ -409,41 +409,31 @@ static struct mtd_partition gec2440_default_nand_part[] = {
 	//}
 #endif
 	[0] = {
-		.name	= "BootLoader",
-		.size	= 0x00040000,
+		.name	= "u-boot",
+		.size	= SZ_256K+SZ_128K,
 		.offset	= 0,
 	},
 	[1] = {
-		.name	= "kernel",
-		.offset = 0x00040000,
-		.size	= 0x00300000,
+		.name	= "u-boot-env",
+		.offset = SZ_256K+SZ_128K,
+		.size	= SZ_128K,
 	},
 	[2] = {
-		.name	= "rootfs",
-		.offset = 0x00340000,
-		.size	= 0x01e00000,
+		.name	= "kernel",
+		.offset = ((SZ_256K+SZ_128K)+SZ_128K),
+		.size	= (SZ_1M * 5),
 	},
 	[3] = {
-		.name	= "linux",
-		.offset = 0x00040000,
-		.size	= 0x00300000 + 0x01e00000,
-	},
-	[4] = {
-		.name	= "jffs2",
-		.offset = 0x02140000,
-		.size	= NAND_FLASH_SIZE-0x02140000
+		.name	= "rootfs",
+		.offset = (((SZ_256K+SZ_128K)+SZ_128K)+ (SZ_1M * 5)),
+		.size	= (SZ_1M * 50),
 //		.size	= 0x2000000,
 	},
-	[5] = {
-		.name	= "nand",
-		.offset = 0x00000000,
-		.size	= NAND_FLASH_SIZE,
+	[4] = {
+		.name	= "other-rootfs",
+		.offset = MTDPART_OFS_APPEND,
+		.size	= MTDPART_SIZ_FULL,
 	},
-//	[7] = {
-//		.name	= "nand",
-//		.offset = 0x00000000,
-//		.size	= NAND_FLASH_SIZE,
-//	}
 };
 
 static struct s3c2410_nand_set gec2440_nand_sets[] = {

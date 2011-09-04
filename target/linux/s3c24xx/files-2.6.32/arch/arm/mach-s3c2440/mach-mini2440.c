@@ -292,66 +292,32 @@ static struct mtd_partition friendly_arm_default_nand_part[] = {
 	//	.size	= 1024 * 1024 * 1024, //
 	//}
 #endif
-#if NAND_FLASH_SIZE <= FLASH_SIZE_64M
 	[0] = {
-		.name	= "ViVi",
-		.size	= 0x00028000,
+		.name	= "u-boot",
+		.size	= SZ_256K+SZ_128K,
 		.offset	= 0,
 	},
 	[1] = {
-		.name	= "eboot",
-		.offset = 0x00028000,
-		.size	= 0x00018000,
-	},
-	[2] = {
-		.name	= "param",
-		.offset = 0x00040000,
-		.size	= 0x00010000,
-	},
-	[3] = {
-		.name	= "kernel",
-		.offset = 0x00050000,
-		.size	= 0x00200000,
-	},
-	[4] = {
-		.name	= "rootfs",
-		.offset = 0x00250000,
-		.size	= NAND_FLASH_SIZE-0x00250000
-//		.size	= 0x2000000,
-	},
-	[5] = {
-		.name	= "nand",
-		.offset = 0x00000000,
-		.size	= NAND_FLASH_SIZE,
-	},
-#else
-	[0] = {
-		.name	= "ViVi",
-		.size	= SZ_256K,
-		.offset	= 0,
-	},
-	[1] = {
-		.name	= "param",
-		.offset = SZ_256K, // 0x00040000
-		.size	= SZ_128K, //0x00020000
+		.name	= "u-boot-env",
+		.offset = SZ_256K+SZ_128K,
+		.size	= SZ_128K,
 	},
 	[2] = {
 		.name	= "kernel",
-		.offset = (SZ_256K + SZ_128K),//0x00060000
-		.size	= (SZ_1M * 5),//0x00200000
+		.offset = ((SZ_256K+SZ_128K)+SZ_128K),
+		.size	= (SZ_1M * 5),
 	},
 	[3] = {
 		.name	= "rootfs",
-		.offset = (SZ_256K + SZ_128K + SZ_1M * 5),
-		.size	= NAND_FLASH_SIZE - (SZ_256K + SZ_128K + SZ_1M * 5),
+		.offset = (((SZ_256K+SZ_128K)+SZ_128K)+ (SZ_1M * 5)),
+		.size	= (SZ_1M * 50),
 //		.size	= 0x2000000,
 	},
 	[4] = {
-		.name	= "nand",
-		.offset = 0x00000000,
-		.size	= NAND_FLASH_SIZE,
+		.name	= "other-rootfs",
+		.offset = MTDPART_OFS_APPEND,
+		.size	= MTDPART_SIZ_FULL,
 	},
-#endif
 };
 
 static struct s3c2410_nand_set friendly_arm_nand_sets[] = {
@@ -498,7 +464,14 @@ static void __init mini2440_machine_init(void)
 	s3c_i2c0_set_platdata(NULL);
 
 	s3c2410_gpio_cfgpin(S3C2410_GPC(0), S3C2410_GPC0_LEND);
-
+	printk("S3C2410_GPA=%d\n",S3C2410_GPA(0));
+	printk("S3C2410_GPB=%d\n",S3C2410_GPB(0));
+	printk("S3C2410_GPC=%d\n",S3C2410_GPC(0));
+	printk("S3C2410_GPD=%d\n",S3C2410_GPD(0));
+	printk("S3C2410_GPE=%d\n",S3C2410_GPE(0));
+	printk("S3C2410_GPF=%d\n",S3C2410_GPF(0));
+	printk("S3C2410_GPG=%d\n",S3C2410_GPG(0));
+	printk("S3C2410_GPH=%d\n",S3C2410_GPH(0));
 	s3c_device_nand.dev.platform_data = &friendly_arm_nand_info;
 	s3c_device_sdi.dev.platform_data = &mini2440_mmc_cfg;
 	platform_add_devices(mini2440_devices, ARRAY_SIZE(mini2440_devices));
