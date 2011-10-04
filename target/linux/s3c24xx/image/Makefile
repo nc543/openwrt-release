@@ -9,7 +9,7 @@
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/image.mk
 
-ifneq ($(CONFIG_MINI2440_UBOOT),)
+#ifneq ($(CONFIG_S3C24XX_UBOOT),)
   define Build/Clean
 	$(MAKE) -C u-boot clean
   endef
@@ -17,7 +17,7 @@ ifneq ($(CONFIG_MINI2440_UBOOT),)
   define Build/Compile
 	$(MAKE) -C u-boot compile
   endef
-endif
+#endif
 
 define Image/Build/MINI2440
   BIN_DIR=$(BIN_DIR) $(TOPDIR)/scripts/combined-image.sh \

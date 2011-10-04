@@ -13,9 +13,10 @@ PKG_VERSION:=2010.03
 PKG_RELEASE:=1
 
 PKG_BUILD_DIR:=$(KERNEL_BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
-PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
-PKG_SOURCE_URL:=ftp://ftp.denx.de/pub/u-boot
-PKG_MD5SUM:=2bf5ebf497dddc52440b1ea386cc1332
+#PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
+PKG_SOURCE:=u-boot-2010.03-s3c24xx-openwrt.tar.bz2
+PKG_SOURCE_URL:=http://openwrt-arm.googlecode.com/files/
+#PKG_MD5SUM:=2bf5ebf497dddc52440b1ea386cc1332
 PKG_CAT:=bzcat
 
 include $(INCLUDE_DIR)/package.mk
@@ -23,7 +24,7 @@ include $(INCLUDE_DIR)/package.mk
 UBOOT_CONFIG=$(call qstrip,$(CONFIG_MINI2440_UBOOT_TARGET))
 
 define Build/Compile
-	$(MAKE) -C $(PKG_BUILD_DIR) mini2440_config
+	$(MAKE) -C $(PKG_BUILD_DIR) smdk2440_config
 	$(MAKE) -C $(PKG_BUILD_DIR) CROSS_COMPILE=$(TARGET_CROSS)
 endef
 
