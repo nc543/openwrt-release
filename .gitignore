@@ -1,3 +1,5 @@
+*.o
+.DS_Store
 .*.swp
 /env
 /dl
@@ -13,3 +15,6 @@
 /files
 /package/feeds
 /package/openwrt-packages
+*.orig
+*.rej
+*~

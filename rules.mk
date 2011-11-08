@@ -27,9 +27,14 @@ merge=$(subst $(space),,$(1))
 confvar=$(call merge,$(foreach v,$(1),$(if $($(v)),y,n)))
 strip_last=$(patsubst %.$(lastword $(subst .,$(space),$(1))),%,$(1))
 
+define sep
+
+endef
+
 _SINGLE=export MAKEFLAGS=$(space);
 CFLAGS:=
 ARCH:=$(subst i486,i386,$(subst i586,i386,$(subst i686,i386,$(call qstrip,$(CONFIG_ARCH)))))
+ARCH_PACKAGES:=$(call qstrip,$(CONFIG_TARGET_ARCH_PACKAGES))
 BOARD:=$(call qstrip,$(CONFIG_TARGET_BOARD))
 TARGET_OPTIMIZATION:=$(call qstrip,$(CONFIG_TARGET_OPTIMIZATION))
 TARGET_SUFFIX=$(call qstrip,$(CONFIG_TARGET_SUFFIX))
@@ -43,6 +48,8 @@ ifeq ($(ARCH),powerpc)
 else
   FPIC:=-fpic
 endif
+
+HOST_FPIC:=-fPIC
 
 ARCH_SUFFIX:=
 ifneq ($(findstring -mips32r2,$(TARGET_OPTIMIZATION)),)
@@ -167,8 +174,6 @@ INSTALL_DATA:=install -m0644
 INSTALL_CONF:=install -m0600
 
 ifneq ($(CONFIG_CCACHE),)
-  # FIXME: move this variable to a better location
-  export CCACHE_DIR=$(STAGING_DIR)/ccache
   TARGET_CC:= ccache $(TARGET_CC)
 endif
 

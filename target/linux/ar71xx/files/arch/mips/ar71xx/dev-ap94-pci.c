@@ -17,8 +17,12 @@
 
 #include "dev-ap94-pci.h"
 
-static struct ath9k_platform_data ap94_wmac0_data;
-static struct ath9k_platform_data ap94_wmac1_data;
+static struct ath9k_platform_data ap94_wmac0_data = {
+	.led_pin = -1,
+};
+static struct ath9k_platform_data ap94_wmac1_data = {
+	.led_pin = -1,
+};
 static char ap94_wmac0_mac[6];
 static char ap94_wmac1_mac[6];
 static int ap94_pci_fixup_enabled;
@@ -125,10 +129,30 @@ static void ap94_pci_fixup(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_ATHEROS, PCI_ANY_ID, ap94_pci_fixup);
 
-void __init ap94_pci_enable_quirk_wndr3700(void)
+__init void ap94_pci_setup_wmac_led_pin(unsigned wmac, int pin)
 {
-	ap94_wmac0_data.quirk_wndr3700 = 1;
-	ap94_wmac1_data.quirk_wndr3700 = 1;
+	switch (wmac) {
+	case 0:
+		ap94_wmac0_data.led_pin = pin;
+		break;
+	case 1:
+		ap94_wmac1_data.led_pin = pin;
+		break;
+	}
+}
+
+__init void ap94_pci_setup_wmac_gpio(unsigned wmac, u32 mask, u32 val)
+{
+	switch (wmac) {
+	case 0:
+		ap94_wmac0_data.gpio_mask = mask;
+		ap94_wmac0_data.gpio_val = val;
+		break;
+	case 1:
+		ap94_wmac1_data.gpio_mask = mask;
+		ap94_wmac1_data.gpio_val = val;
+		break;
+	}
 }
 
 void __init ap94_pci_init(u8 *cal_data0, u8 *mac_addr0,

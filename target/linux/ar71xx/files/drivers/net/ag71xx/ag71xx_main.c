@@ -14,14 +14,14 @@
 #include "ag71xx.h"
 
 #define AG71XX_DEFAULT_MSG_ENABLE	\
-	( NETIF_MSG_DRV 		\
+	(NETIF_MSG_DRV			\
 	| NETIF_MSG_PROBE		\
 	| NETIF_MSG_LINK		\
 	| NETIF_MSG_TIMER		\
 	| NETIF_MSG_IFDOWN		\
 	| NETIF_MSG_IFUP		\
 	| NETIF_MSG_RX_ERR		\
-	| NETIF_MSG_TX_ERR )
+	| NETIF_MSG_TX_ERR)
 
 static int ag71xx_msg_level = -1;
 
@@ -119,14 +119,15 @@ static int ag71xx_ring_alloc(struct ag71xx_ring *ring, unsigned int size)
 	}
 
 	for (i = 0; i < size; i++) {
-		ring->buf[i].desc = (struct ag71xx_desc *)&ring->descs_cpu[i * ring->desc_size];
+		int idx = i * ring->desc_size;
+		ring->buf[i].desc = (struct ag71xx_desc *)&ring->descs_cpu[idx];
 		DBG("ag71xx: ring %p, desc %d at %p\n",
 			ring, i, ring->buf[i].desc);
 	}
 
 	return 0;
 
- err:
+err:
 	return err;
 }
 
@@ -192,9 +193,28 @@ static void ag71xx_ring_rx_clean(struct ag71xx *ag)
 		}
 }
 
+static int ag71xx_rx_reserve(struct ag71xx *ag)
+{
+	int reserve = 0;
+
+	if (ag71xx_get_pdata(ag)->is_ar724x) {
+		if (!ag71xx_has_ar8216(ag))
+			reserve = 2;
+
+		if (ag->phy_dev)
+			reserve += 4 - (ag->phy_dev->pkt_align % 4);
+
+		reserve %= 4;
+	}
+
+	return reserve + AG71XX_RX_PKT_RESERVE;
+}
+
+
 static int ag71xx_ring_rx_init(struct ag71xx *ag)
 {
 	struct ag71xx_ring *ring = &ag->rx_ring;
+	unsigned int reserve = ag71xx_rx_reserve(ag);
 	unsigned int i;
 	int ret;
 
@@ -212,14 +232,14 @@ static int ag71xx_ring_rx_init(struct ag71xx *ag)
 		struct sk_buff *skb;
 		dma_addr_t dma_addr;
 
-		skb = dev_alloc_skb(AG71XX_RX_PKT_SIZE + AG71XX_RX_PKT_RESERVE);
+		skb = dev_alloc_skb(AG71XX_RX_PKT_SIZE + reserve);
 		if (!skb) {
 			ret = -ENOMEM;
 			break;
 		}
 
 		skb->dev = ag->dev;
-		skb_reserve(skb, AG71XX_RX_PKT_RESERVE);
+		skb_reserve(skb, reserve);
 
 		dma_addr = dma_map_single(&ag->dev->dev, skb->data,
 					  AG71XX_RX_PKT_SIZE,
@@ -242,6 +262,7 @@ static int ag71xx_ring_rx_init(struct ag71xx *ag)
 static int ag71xx_ring_rx_refill(struct ag71xx *ag)
 {
 	struct ag71xx_ring *ring = &ag->rx_ring;
+	unsigned int reserve = ag71xx_rx_reserve(ag);
 	unsigned int count;
 
 	count = 0;
@@ -254,12 +275,11 @@ static int ag71xx_ring_rx_refill(struct ag71xx *ag)
 			dma_addr_t dma_addr;
 			struct sk_buff *skb;
 
-			skb = dev_alloc_skb(AG71XX_RX_PKT_SIZE +
-					    AG71XX_RX_PKT_RESERVE);
+			skb = dev_alloc_skb(AG71XX_RX_PKT_SIZE + reserve);
 			if (skb == NULL)
 				break;
 
-			skb_reserve(skb, AG71XX_RX_PKT_RESERVE);
+			skb_reserve(skb, reserve);
 			skb->dev = ag->dev;
 
 			dma_addr = dma_map_single(&ag->dev->dev, skb->data,
@@ -324,93 +344,6 @@ static unsigned char *ag71xx_speed_str(struct ag71xx *ag)
 	return "?";
 }
 
-void ag71xx_link_adjust(struct ag71xx *ag)
-{
-	struct ag71xx_platform_data *pdata = ag71xx_get_pdata(ag);
-	u32 cfg2;
-	u32 ifctl;
-	u32 fifo5;
-	u32 mii_speed;
-
-	if (!ag->link) {
-		netif_carrier_off(ag->dev);
-		if (netif_msg_link(ag))
-			printk(KERN_INFO "%s: link down\n", ag->dev->name);
-		return;
-	}
-
-	cfg2 = ag71xx_rr(ag, AG71XX_REG_MAC_CFG2);
-	cfg2 &= ~(MAC_CFG2_IF_1000 | MAC_CFG2_IF_10_100 | MAC_CFG2_FDX);
-	cfg2 |= (ag->duplex) ? MAC_CFG2_FDX : 0;
-
-	ifctl = ag71xx_rr(ag, AG71XX_REG_MAC_IFCTL);
-	ifctl &= ~(MAC_IFCTL_SPEED);
-
-	fifo5 = ag71xx_rr(ag, AG71XX_REG_FIFO_CFG5);
-	fifo5 &= ~FIFO_CFG5_BM;
-
-	switch (ag->speed) {
-	case SPEED_1000:
-		mii_speed =  MII_CTRL_SPEED_1000;
-		cfg2 |= MAC_CFG2_IF_1000;
-		fifo5 |= FIFO_CFG5_BM;
-		break;
-	case SPEED_100:
-		mii_speed = MII_CTRL_SPEED_100;
-		cfg2 |= MAC_CFG2_IF_10_100;
-		ifctl |= MAC_IFCTL_SPEED;
-		break;
-	case SPEED_10:
-		mii_speed = MII_CTRL_SPEED_10;
-		cfg2 |= MAC_CFG2_IF_10_100;
-		break;
-	default:
-		BUG();
-		return;
-	}
-
-	if (pdata->is_ar91xx)
-		ag71xx_wr(ag, AG71XX_REG_FIFO_CFG3, 0x00780fff);
-	else if (pdata->is_ar724x)
-		ag71xx_wr(ag, AG71XX_REG_FIFO_CFG3, pdata->fifo_cfg3);
-	else
-		ag71xx_wr(ag, AG71XX_REG_FIFO_CFG3, 0x008001ff);
-
-	if (pdata->set_pll)
-		pdata->set_pll(ag->speed);
-
-	ag71xx_mii_ctrl_set_speed(ag, mii_speed);
-
-	ag71xx_wr(ag, AG71XX_REG_MAC_CFG2, cfg2);
-	ag71xx_wr(ag, AG71XX_REG_FIFO_CFG5, fifo5);
-	ag71xx_wr(ag, AG71XX_REG_MAC_IFCTL, ifctl);
-
-	netif_carrier_on(ag->dev);
-	if (netif_msg_link(ag))
-		printk(KERN_INFO "%s: link up (%sMbps/%s duplex)\n",
-			ag->dev->name,
-			ag71xx_speed_str(ag),
-			(DUPLEX_FULL == ag->duplex) ? "Full" : "Half");
-
-	DBG("%s: fifo_cfg0=%#x, fifo_cfg1=%#x, fifo_cfg2=%#x\n",
-		ag->dev->name,
-		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG0),
-		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG1),
-		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG2));
-
-	DBG("%s: fifo_cfg3=%#x, fifo_cfg4=%#x, fifo_cfg5=%#x\n",
-		ag->dev->name,
-		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG3),
-		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG4),
-		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG5));
-
-	DBG("%s: mac_cfg2=%#x, mac_ifctl=%#x, mii_ctrl=%#x\n",
-		ag->dev->name,
-		ag71xx_rr(ag, AG71XX_REG_MAC_CFG2),
-		ag71xx_rr(ag, AG71XX_REG_MAC_IFCTL),
-		ag71xx_mii_ctrl_rr(ag));
-}
-
 static void ag71xx_hw_set_macaddr(struct ag71xx *ag, unsigned char *mac)
 {
 	u32 t;
@@ -435,9 +368,15 @@ static void ag71xx_dma_reset(struct ag71xx *ag)
 	ag71xx_wr(ag, AG71XX_REG_RX_CTRL, 0);
 	ag71xx_wr(ag, AG71XX_REG_TX_CTRL, 0);
 
+	/*
+	 * give the hardware some time to really stop all rx/tx activity
+	 * clearing the descriptors too early causes random memory corruption
+	 */
+	mdelay(1);
+
 	/* clear descriptor addresses */
-	ag71xx_wr(ag, AG71XX_REG_TX_DESC, 0);
-	ag71xx_wr(ag, AG71XX_REG_RX_DESC, 0);
+	ag71xx_wr(ag, AG71XX_REG_TX_DESC, ag->stop_desc_dma);
+	ag71xx_wr(ag, AG71XX_REG_RX_DESC, ag->stop_desc_dma);
 
 	/* clear pending RX/TX interrupts */
 	for (i = 0; i < 256; i++) {
@@ -485,24 +424,20 @@ static void ag71xx_dma_reset(struct ag71xx *ag)
 			 FIFO_CFG5_LE | FIFO_CFG5_FT | FIFO_CFG5_16 | \
 			 FIFO_CFG5_17 | FIFO_CFG5_SF)
 
-static void ag71xx_hw_init(struct ag71xx *ag)
+static void ag71xx_hw_stop(struct ag71xx *ag)
+{
+	/* disable all interrupts and stop the rx/tx engine */
+	ag71xx_wr(ag, AG71XX_REG_INT_ENABLE, 0);
+	ag71xx_wr(ag, AG71XX_REG_RX_CTRL, 0);
+	ag71xx_wr(ag, AG71XX_REG_TX_CTRL, 0);
+}
+
+static void ag71xx_hw_setup(struct ag71xx *ag)
 {
 	struct ag71xx_platform_data *pdata = ag71xx_get_pdata(ag);
 
-	ag71xx_sb(ag, AG71XX_REG_MAC_CFG1, MAC_CFG1_SR);
-	udelay(20);
-
-	ar71xx_device_stop(pdata->reset_bit);
-	mdelay(100);
-	ar71xx_device_start(pdata->reset_bit);
-	mdelay(100);
-
 	/* setup MAC configuration registers */
-	if (pdata->is_ar724x)
-		ag71xx_wr(ag, AG71XX_REG_MAC_CFG1,
-			  MAC_CFG1_INIT | MAC_CFG1_TFC | MAC_CFG1_RFC);
-	else
-		ag71xx_wr(ag, AG71XX_REG_MAC_CFG1, MAC_CFG1_INIT);
+	ag71xx_wr(ag, AG71XX_REG_MAC_CFG1, MAC_CFG1_INIT);
 
 	ag71xx_sb(ag, AG71XX_REG_MAC_CFG2,
 		  MAC_CFG2_PAD_CRC_EN | MAC_CFG2_LEN_CHECK);
@@ -524,8 +459,67 @@ static void ag71xx_hw_init(struct ag71xx *ag)
 	}
 	ag71xx_wr(ag, AG71XX_REG_FIFO_CFG4, FIFO_CFG4_INIT);
 	ag71xx_wr(ag, AG71XX_REG_FIFO_CFG5, FIFO_CFG5_INIT);
+}
+
+static void ag71xx_hw_init(struct ag71xx *ag)
+{
+	struct ag71xx_platform_data *pdata = ag71xx_get_pdata(ag);
+	u32 reset_mask = pdata->reset_bit;
+
+	ag71xx_hw_stop(ag);
+
+	if (pdata->is_ar724x) {
+		u32 reset_phy = reset_mask;
+
+		reset_phy &= RESET_MODULE_GE0_PHY | RESET_MODULE_GE1_PHY;
+		reset_mask &= ~(RESET_MODULE_GE0_PHY | RESET_MODULE_GE1_PHY);
+
+		ar71xx_device_stop(reset_phy);
+		mdelay(50);
+		ar71xx_device_start(reset_phy);
+		mdelay(200);
+	}
+
+	ag71xx_sb(ag, AG71XX_REG_MAC_CFG1, MAC_CFG1_SR);
+	udelay(20);
+
+	ar71xx_device_stop(reset_mask);
+	mdelay(100);
+	ar71xx_device_start(reset_mask);
+	mdelay(200);
+
+	ag71xx_hw_setup(ag);
 
 	ag71xx_dma_reset(ag);
+}
+
+static void ag71xx_fast_reset(struct ag71xx *ag)
+{
+	struct ag71xx_platform_data *pdata = ag71xx_get_pdata(ag);
+	struct net_device *dev = ag->dev;
+	u32 reset_mask = pdata->reset_bit;
+	u32 rx_ds, tx_ds;
+	u32 mii_reg;
+
+	reset_mask &= RESET_MODULE_GE0_MAC | RESET_MODULE_GE1_MAC;
+
+	mii_reg = ag71xx_rr(ag, AG71XX_REG_MII_CFG);
+	rx_ds = ag71xx_rr(ag, AG71XX_REG_RX_DESC);
+	tx_ds = ag71xx_rr(ag, AG71XX_REG_TX_DESC);
+
+	ar71xx_device_stop(reset_mask);
+	udelay(10);
+	ar71xx_device_start(reset_mask);
+	udelay(10);
+
+	ag71xx_dma_reset(ag);
+	ag71xx_hw_setup(ag);
+
+	ag71xx_wr(ag, AG71XX_REG_RX_DESC, rx_ds);
+	ag71xx_wr(ag, AG71XX_REG_TX_DESC, tx_ds);
+	ag71xx_wr(ag, AG71XX_REG_MII_CFG, mii_reg);
+
+	ag71xx_hw_set_macaddr(ag, dev->dev_addr);
 }
 
 static void ag71xx_hw_start(struct ag71xx *ag)
@@ -537,12 +531,96 @@ static void ag71xx_hw_start(struct ag71xx *ag)
 	ag71xx_wr(ag, AG71XX_REG_INT_ENABLE, AG71XX_INT_INIT);
 }
 
-static void ag71xx_hw_stop(struct ag71xx *ag)
+void ag71xx_link_adjust(struct ag71xx *ag)
 {
-	/* disable all interrupts */
-	ag71xx_wr(ag, AG71XX_REG_INT_ENABLE, 0);
+	struct ag71xx_platform_data *pdata = ag71xx_get_pdata(ag);
+	u32 cfg2;
+	u32 ifctl;
+	u32 fifo5;
+	u32 mii_speed;
 
-	ag71xx_dma_reset(ag);
+	if (!ag->link) {
+		ag71xx_hw_stop(ag);
+		netif_carrier_off(ag->dev);
+		if (netif_msg_link(ag))
+			printk(KERN_INFO "%s: link down\n", ag->dev->name);
+		return;
+	}
+
+	if (pdata->is_ar724x)
+		ag71xx_fast_reset(ag);
+
+	cfg2 = ag71xx_rr(ag, AG71XX_REG_MAC_CFG2);
+	cfg2 &= ~(MAC_CFG2_IF_1000 | MAC_CFG2_IF_10_100 | MAC_CFG2_FDX);
+	cfg2 |= (ag->duplex) ? MAC_CFG2_FDX : 0;
+
+	ifctl = ag71xx_rr(ag, AG71XX_REG_MAC_IFCTL);
+	ifctl &= ~(MAC_IFCTL_SPEED);
+
+	fifo5 = ag71xx_rr(ag, AG71XX_REG_FIFO_CFG5);
+	fifo5 &= ~FIFO_CFG5_BM;
+
+	switch (ag->speed) {
+	case SPEED_1000:
+		mii_speed =  MII_CTRL_SPEED_1000;
+		cfg2 |= MAC_CFG2_IF_1000;
+		fifo5 |= FIFO_CFG5_BM;
+		break;
+	case SPEED_100:
+		mii_speed = MII_CTRL_SPEED_100;
+		cfg2 |= MAC_CFG2_IF_10_100;
+		ifctl |= MAC_IFCTL_SPEED;
+		break;
+	case SPEED_10:
+		mii_speed = MII_CTRL_SPEED_10;
+		cfg2 |= MAC_CFG2_IF_10_100;
+		break;
+	default:
+		BUG();
+		return;
+	}
+
+	if (pdata->is_ar91xx)
+		ag71xx_wr(ag, AG71XX_REG_FIFO_CFG3, 0x00780fff);
+	else if (pdata->is_ar724x)
+		ag71xx_wr(ag, AG71XX_REG_FIFO_CFG3, pdata->fifo_cfg3);
+	else
+		ag71xx_wr(ag, AG71XX_REG_FIFO_CFG3, 0x008001ff);
+
+	if (pdata->set_pll)
+		pdata->set_pll(ag->speed);
+
+	ag71xx_mii_ctrl_set_speed(ag, mii_speed);
+
+	ag71xx_wr(ag, AG71XX_REG_MAC_CFG2, cfg2);
+	ag71xx_wr(ag, AG71XX_REG_FIFO_CFG5, fifo5);
+	ag71xx_wr(ag, AG71XX_REG_MAC_IFCTL, ifctl);
+	ag71xx_hw_start(ag);
+
+	netif_carrier_on(ag->dev);
+	if (netif_msg_link(ag))
+		printk(KERN_INFO "%s: link up (%sMbps/%s duplex)\n",
+			ag->dev->name,
+			ag71xx_speed_str(ag),
+			(DUPLEX_FULL == ag->duplex) ? "Full" : "Half");
+
+	DBG("%s: fifo_cfg0=%#x, fifo_cfg1=%#x, fifo_cfg2=%#x\n",
+		ag->dev->name,
+		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG0),
+		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG1),
+		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG2));
+
+	DBG("%s: fifo_cfg3=%#x, fifo_cfg4=%#x, fifo_cfg5=%#x\n",
+		ag->dev->name,
+		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG3),
+		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG4),
+		ag71xx_rr(ag, AG71XX_REG_FIFO_CFG5));
+
+	DBG("%s: mac_cfg2=%#x, mac_ifctl=%#x, mii_ctrl=%#x\n",
+		ag->dev->name,
+		ag71xx_rr(ag, AG71XX_REG_MAC_CFG2),
+		ag71xx_rr(ag, AG71XX_REG_MAC_IFCTL),
+		ag71xx_mii_ctrl_rr(ag));
 }
 
 static int ag71xx_open(struct net_device *dev)
@@ -564,13 +642,11 @@ static int ag71xx_open(struct net_device *dev)
 
 	ag71xx_hw_set_macaddr(ag, dev->dev_addr);
 
-	ag71xx_hw_start(ag);
-
 	netif_start_queue(dev);
 
 	return 0;
 
- err:
+err:
 	ag71xx_rings_cleanup(ag);
 	return ret;
 }
@@ -588,6 +664,7 @@ static int ag71xx_stop(struct net_device *dev)
 	netif_stop_queue(dev);
 
 	ag71xx_hw_stop(ag);
+	ag71xx_dma_reset(ag);
 
 	napi_disable(&ag->napi);
 	del_timer_sync(&ag->oom_timer);
@@ -626,6 +703,7 @@ static netdev_tx_t ag71xx_hard_start_xmit(struct sk_buff *skb,
 				  DMA_TO_DEVICE);
 
 	ring->buf[i].skb = skb;
+	ring->buf[i].timestamp = jiffies;
 
 	/* setup descriptor fields */
 	desc->data = (u32) dma_addr;
@@ -647,7 +725,7 @@ static netdev_tx_t ag71xx_hard_start_xmit(struct sk_buff *skb,
 
 	return NETDEV_TX_OK;
 
- err_drop:
+err_drop:
 	dev->stats.tx_dropped++;
 
 	dev_kfree_skb(skb);
@@ -656,7 +734,6 @@ static netdev_tx_t ag71xx_hard_start_xmit(struct sk_buff *skb,
 
 static int ag71xx_do_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
-	struct mii_ioctl_data *data = (struct mii_ioctl_data *) &ifr->ifr_data;
 	struct ag71xx *ag = netdev_priv(dev);
 	int ret;
 
@@ -688,7 +765,7 @@ static int ag71xx_do_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		if (ag->phy_dev == NULL)
 			break;
 
-		return phy_mii_ioctl(ag->phy_dev, data, cmd);
+		return phy_mii_ioctl(ag->phy_dev, if_mii(ifr), cmd);
 
 	default:
 		break;
@@ -759,25 +836,6 @@ static int ag71xx_tx_packets(struct ag71xx *ag)
 	return sent;
 }
 
-static int ag71xx_rx_copy_skb(struct ag71xx *ag, struct sk_buff **pskb,
-			      int pktlen)
-{
-	struct sk_buff *copy_skb;
-
-	copy_skb = netdev_alloc_skb(ag->dev, pktlen + NET_IP_ALIGN);
-	if (!copy_skb)
-		return -ENOMEM;
-
-	skb_reserve(copy_skb, NET_IP_ALIGN);
-	skb_copy_from_linear_data(*pskb, copy_skb->data, pktlen);
-	skb_put(copy_skb, pktlen);
-
-	dev_kfree_skb_any(*pskb);
-	*pskb = copy_skb;
-
-	return 0;
-}
-
 static int ag71xx_rx_packets(struct ag71xx *ag, int limit)
 {
 	struct net_device *dev = ag->dev;
@@ -815,10 +873,9 @@ static int ag71xx_rx_packets(struct ag71xx *ag, int limit)
 		dev->stats.rx_packets++;
 		dev->stats.rx_bytes += pktlen;
 
+		skb_put(skb, pktlen);
 		if (ag71xx_has_ar8216(ag))
 			err = ag71xx_remove_ar8216_header(ag, skb, pktlen);
-		else
-			err = ag71xx_rx_copy_skb(ag, &skb, pktlen);
 
 		if (err) {
 			dev->stats.rx_dropped++;
@@ -826,8 +883,12 @@ static int ag71xx_rx_packets(struct ag71xx *ag, int limit)
 		} else {
 			skb->dev = dev;
 			skb->ip_summed = CHECKSUM_NONE;
-			skb->protocol = eth_type_trans(skb, dev);
-			netif_receive_skb(skb);
+			if (ag->phy_dev) {
+				ag->phy_dev->netif_receive_skb(skb);
+			} else {
+				skb->protocol = eth_type_trans(skb, dev);
+				netif_receive_skb(skb);
+			}
 		}
 
 		ring->buf[i].skb = NULL;
@@ -896,12 +957,12 @@ static int ag71xx_poll(struct napi_struct *napi, int limit)
 		return rx_done;
 	}
 
- more:
+more:
 	DBG("%s: stay in polling mode, rx=%d, tx=%d, limit=%d\n",
 			dev->name, rx_done, tx_done, limit);
 	return rx_done;
 
- oom:
+oom:
 	if (netif_msg_rx_err(ag))
 		printk(KERN_DEBUG "%s: out of memory\n", dev->name);
 
@@ -978,7 +1039,7 @@ static const struct net_device_ops ag71xx_netdev_ops = {
 #endif
 };
 
-static int __init ag71xx_probe(struct platform_device *pdev)
+static int __devinit ag71xx_probe(struct platform_device *pdev)
 {
 	struct net_device *dev;
 	struct resource *res;
@@ -1045,7 +1106,7 @@ static int __init ag71xx_probe(struct platform_device *pdev)
 
 	dev->irq = platform_get_irq(pdev, 0);
 	err = request_irq(dev->irq, ag71xx_interrupt,
-			  IRQF_DISABLED | IRQF_SAMPLE_RANDOM,
+			  IRQF_DISABLED,
 			  dev->name, dev);
 	if (err) {
 		dev_err(&pdev->dev, "unable to request IRQ %d\n", dev->irq);
@@ -1062,6 +1123,16 @@ static int __init ag71xx_probe(struct platform_device *pdev)
 	ag->oom_timer.data = (unsigned long) dev;
 	ag->oom_timer.function = ag71xx_oom_timer_handler;
 
+	ag->stop_desc = dma_alloc_coherent(NULL,
+		sizeof(struct ag71xx_desc), &ag->stop_desc_dma, GFP_KERNEL);
+
+	if (!ag->stop_desc)
+		goto err_free_irq;
+
+	ag->stop_desc->data = 0;
+	ag->stop_desc->ctrl = 0;
+	ag->stop_desc->next = (u32) ag->stop_desc_dma;
+
 	memcpy(dev->dev_addr, pdata->mac_addr, ETH_ALEN);
 
 	netif_napi_add(dev, &ag->napi, ag71xx_poll, AG71XX_NAPI_WEIGHT);
@@ -1069,7 +1140,7 @@ static int __init ag71xx_probe(struct platform_device *pdev)
 	err = register_netdev(dev);
 	if (err) {
 		dev_err(&pdev->dev, "unable to register net device\n");
-		goto err_free_irq;
+		goto err_free_desc;
 	}
 
 	printk(KERN_INFO "%s: Atheros AG71xx at 0x%08lx, irq %d\n",
@@ -1093,24 +1164,27 @@ static int __init ag71xx_probe(struct platform_device *pdev)
 
 	return 0;
 
- err_phy_disconnect:
+err_phy_disconnect:
 	ag71xx_phy_disconnect(ag);
- err_unregister_netdev:
+err_unregister_netdev:
 	unregister_netdev(dev);
- err_free_irq:
+err_free_desc:
+	dma_free_coherent(NULL, sizeof(struct ag71xx_desc), ag->stop_desc,
+			  ag->stop_desc_dma);
+err_free_irq:
 	free_irq(dev->irq, dev);
- err_unmap_mii_ctrl:
+err_unmap_mii_ctrl:
 	iounmap(ag->mii_ctrl);
- err_unmap_base:
+err_unmap_base:
 	iounmap(ag->mac_base);
- err_free_dev:
+err_free_dev:
 	kfree(dev);
- err_out:
+err_out:
 	platform_set_drvdata(pdev, NULL);
 	return err;
 }
 
-static int __exit ag71xx_remove(struct platform_device *pdev)
+static int __devexit ag71xx_remove(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 
@@ -1156,11 +1230,11 @@ static int __init ag71xx_module_init(void)
 
 	return 0;
 
- err_mdio_exit:
+err_mdio_exit:
 	ag71xx_mdio_driver_exit();
- err_debugfs_exit:
+err_debugfs_exit:
 	ag71xx_debugfs_root_exit();
- err_out:
+err_out:
 	return ret;
 }
 

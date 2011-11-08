@@ -68,7 +68,7 @@ static struct http_response * uh_cgi_header_parse(char *buf, int len, int *off)
 				if( (pos < len) && (buf[pos] == '\n') )
 					pos++;
 
-				if( pos < len )
+				if( pos <= len )
 				{
 					if( (hdrcount + 1) < array_size(res.headers) )
 					{
@@ -135,9 +135,11 @@ static int uh_cgi_error_500(struct client *cl, struct http_request *req, const c
 }
 
 
-void uh_cgi_request(struct client *cl, struct http_request *req, struct path_info *pi)
-{
-	int i, hdroff, bufoff;
+void uh_cgi_request(
+	struct client *cl, struct http_request *req,
+	struct path_info *pi, struct interpreter *ip
+) {
+	int i, hdroff, bufoff, rv;
 	int hdrlen = 0;
 	int buflen = 0;
 	int fd_max = 0;
@@ -154,6 +156,8 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 
 	fd_set reader;
 	fd_set writer;
+
+	sigset_t ss;
 
 	struct sigaction sa;
 	struct timeval timeout;
@@ -185,6 +189,10 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 
 		/* exec child */
 		case 0:
+			/* unblock signals */
+			sigemptyset(&ss);
+			sigprocmask(SIG_SETMASK, &ss, NULL);
+
 			/* restore SIGTERM */
 			sa.sa_flags = 0;
 			sa.sa_handler = SIG_DFL;
@@ -199,9 +207,13 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 			dup2(rfd[1], 1);
 			dup2(wfd[0], 0);
 
-			/* check for regular, world-executable file */
-			if( (pi->stat.st_mode & S_IFREG) &&
-			    (pi->stat.st_mode & S_IXOTH)
+			/* avoid leaking our pipe into child-child processes */
+			fd_cloexec(rfd[1]);
+			fd_cloexec(wfd[0]);
+
+			/* check for regular, world-executable file _or_ interpreter */
+			if( ((pi->stat.st_mode & S_IFREG) &&
+			     (pi->stat.st_mode & S_IXOTH)) || (ip != NULL)
 			) {
 				/* build environment */
 				clearenv();
@@ -234,6 +246,17 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 				if( pi->info )
 					setenv("PATH_INFO", pi->info, 1);
 
+				/* REDIRECT_STATUS, php-cgi wants it */
+				switch( req->redirect_status )
+				{
+					case 404:
+						setenv("REDIRECT_STATUS", "404", 1);
+						break;
+
+					default:
+						setenv("REDIRECT_STATUS", "200", 1);
+						break;
+				}
 
 				/* http version */
 				if( req->version > 1.0 )
@@ -309,14 +332,17 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 				if( chdir(pi->root) )
 					perror("chdir()");
 
-				execl(pi->phys, pi->phys, NULL);
+				if( ip != NULL )
+					execl(ip->path, ip->path, pi->phys, NULL);
+				else
+					execl(pi->phys, pi->phys, NULL);
 
 				/* in case it fails ... */
 				printf(
 					"Status: 500 Internal Server Error\r\n\r\n"
 					"Unable to launch the requested CGI program:\n"
 					"  %s: %s\n",
-						pi->phys, strerror(errno)
+						ip ? ip->path : pi->phys, strerror(errno)
 				);
 			}
 
@@ -360,12 +386,6 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 
 			memset(hdr, 0, sizeof(hdr));
 
-			timeout.tv_sec = cl->server->conf->script_timeout;
-			timeout.tv_usec = 0;
-
-#define ensure(x) \
-	do { if( x < 0 ) goto out; } while(0)
-
 			/* I/O loop, watch our pipe ends and dispatch child reads/writes from/to socket */
 			while( 1 )
 			{
@@ -375,11 +395,21 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 				FD_SET(rfd[0], &reader);
 				FD_SET(wfd[1], &writer);
 
+				timeout.tv_sec = (header_sent < 1) ? cl->server->conf->script_timeout : 3;
+				timeout.tv_usec = 0;
+
+				ensure_out(rv = select_intr(fd_max, &reader,
+					(content_length > -1) ? &writer : NULL, NULL, &timeout));
+
+				/* timeout */
+				if( rv == 0 )
+				{
+					ensure_out(kill(child, 0));
+				}
+
 				/* wait until we can read or write or both */
-				if( select_intr(fd_max, &reader,
-					(content_length > -1) ? &writer : NULL, NULL,
-					(header_sent < 1) ? &timeout : NULL) > 0
-				) {
+				else if( rv > 0 )
+				{
 					/* ready to write to cgi program */
 					if( FD_ISSET(wfd[1], &writer) )
 					{
@@ -387,7 +417,10 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 						if( content_length > 0 )
 						{
 							/* read it from socket ... */
-							if( (buflen = uh_tcp_recv(cl, buf, min(content_length, sizeof(buf)))) > 0 )
+							ensure_out(buflen = uh_tcp_recv(cl, buf,
+								min(content_length, sizeof(buf))));
+
+							if( buflen > 0 )
 							{
 								/* ... and write it to child's stdin */
 								if( write(wfd[1], buf, buflen) < 0 )
@@ -440,7 +473,7 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 								if( (res = uh_cgi_header_parse(hdr, hdrlen, &hdroff)) != NULL )
 								{
 									/* write status */
-									ensure(uh_http_sendf(cl, NULL,
+									ensure_out(uh_http_sendf(cl, NULL,
 										"HTTP/%.1f %03d %s\r\n"
 										"Connection: close\r\n",
 										req->version, res->statuscode,
@@ -450,7 +483,7 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 									if( !uh_cgi_header_lookup(res, "Location") &&
 									    !uh_cgi_header_lookup(res, "Content-Type")
 									) {
-										ensure(uh_http_send(cl, NULL,
+										ensure_out(uh_http_send(cl, NULL,
 											"Content-Type: text/plain\r\n", -1));
 									}
 
@@ -458,32 +491,32 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 									if( (req->version > 1.0) &&
 									    !uh_cgi_header_lookup(res, "Transfer-Encoding")
 									) {
-										ensure(uh_http_send(cl, NULL,
+										ensure_out(uh_http_send(cl, NULL,
 											"Transfer-Encoding: chunked\r\n", -1));
 									}
 
 									/* write headers from CGI program */
 									foreach_header(i, res->headers)
 									{
-										ensure(uh_http_sendf(cl, NULL, "%s: %s\r\n",
+										ensure_out(uh_http_sendf(cl, NULL, "%s: %s\r\n",
 											res->headers[i], res->headers[i+1]));
 									}
 
 									/* terminate header */
-									ensure(uh_http_send(cl, NULL, "\r\n", -1));
+									ensure_out(uh_http_send(cl, NULL, "\r\n", -1));
 
 									/* push out remaining head buffer */
 									if( hdroff < hdrlen )
-										ensure(uh_http_send(cl, req, &hdr[hdroff], hdrlen - hdroff));
+										ensure_out(uh_http_send(cl, req, &hdr[hdroff], hdrlen - hdroff));
 								}
 
 								/* ... failed and head buffer exceeded */
 								else if( hdrlen >= sizeof(hdr) )
 								{
-									ensure(uh_cgi_error_500(cl, req,
+									ensure_out(uh_cgi_error_500(cl, req,
 										"The CGI program generated an invalid response:\n\n"));
 
-									ensure(uh_http_send(cl, req, hdr, hdrlen));
+									ensure_out(uh_http_send(cl, req, hdr, hdrlen));
 								}
 
 								/* ... failed but free buffer space, try again */
@@ -494,7 +527,7 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 
 								/* push out remaining read buffer */
 								if( bufoff < buflen )
-									ensure(uh_http_send(cl, req, &buf[bufoff], buflen - bufoff));
+									ensure_out(uh_http_send(cl, req, &buf[bufoff], buflen - bufoff));
 
 								header_sent = 1;
 								continue;
@@ -502,7 +535,7 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 
 
 							/* headers complete, pass through buffer to socket */
-							ensure(uh_http_send(cl, req, buf, buflen));
+							ensure_out(uh_http_send(cl, req, buf, buflen));
 						}
 
 						/* looks like eof from child */
@@ -522,7 +555,7 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 								 * build the required headers here.
 								 */
 
-								ensure(uh_http_sendf(cl, NULL,
+								ensure_out(uh_http_sendf(cl, NULL,
 									"HTTP/%.1f 200 OK\r\n"
 									"Content-Type: text/plain\r\n"
 									"%s\r\n",
@@ -530,11 +563,11 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 											? "Transfer-Encoding: chunked\r\n" : ""
 								));
 
-								ensure(uh_http_send(cl, req, hdr, hdrlen));
+								ensure_out(uh_http_send(cl, req, hdr, hdrlen));
 							}
 
 							/* send final chunk if we're in chunked transfer mode */
-							ensure(uh_http_send(cl, req, "", 0));
+							ensure_out(uh_http_send(cl, req, "", 0));
 							break;
 						}
 					}
@@ -545,13 +578,13 @@ void uh_cgi_request(struct client *cl, struct http_request *req, struct path_inf
 				{
 					if( (errno != EINTR) && ! header_sent )
 					{
-						ensure(uh_http_sendhf(cl, 504, "Gateway Timeout",
+						ensure_out(uh_http_sendhf(cl, 504, "Gateway Timeout",
 							"The CGI script took too long to produce "
 							"a response"));
 					}
 
 					/* send final chunk if we're in chunked transfer mode */
-					ensure(uh_http_send(cl, req, "", 0));
+					ensure_out(uh_http_send(cl, req, "", 0));
 
 					break;
 				}

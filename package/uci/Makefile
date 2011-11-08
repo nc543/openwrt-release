@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2008 OpenWrt.org
+# Copyright (C) 2008-2011 OpenWrt.org
 #
 # This is free software, licensed under the GNU General Public License v2.
 # See /LICENSE for more information.
@@ -8,11 +8,11 @@
 include $(TOPDIR)/rules.mk
 
 UCI_VERSION=12012009
-UCI_RELEASE=5
+UCI_RELEASE=6
 
 PKG_NAME:=uci
 PKG_VERSION:=$(UCI_VERSION)$(if $(UCI_RELEASE),.$(UCI_RELEASE))
-PKG_RELEASE:=1
+PKG_RELEASE:=4
 PKG_REV:=aa3ab8012bfbf793d2884c08ea924545a04e9544
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz

@@ -11,7 +11,7 @@ DOWNLOAD_RDEP=$(STAMP_PREPARED) $(HOST_STAMP_PREPARED)
 define dl_method
 $(strip \
   $(if $(2),$(2), \
-    $(if $(filter @GNOME/% @GNU/% @KERNEL/% @SF/% ftp://% http://% file://%,$(1)),default, \
+    $(if $(filter @GNOME/% @GNU/% @KERNEL/% @SF/% ftp://% http://% https://% file://%,$(1)),default, \
       $(if $(filter git://%,$(1)),git, \
         $(if $(filter svn://%,$(1)),svn, \
           $(if $(filter cvs://%,$(1)),cvs, \
@@ -41,7 +41,7 @@ define DownloadMethod/unknown
 endef
 
 define DownloadMethod/default
-	$(SCRIPT_DIR)/download.pl "$(DL_DIR)" "$(FILE)" "$(MD5SUM)" $(URL)
+	$(SCRIPT_DIR)/download.pl "$(DL_DIR)" "$(FILE)" "$(MD5SUM)" $(foreach url,$(URL),"$(url)")
 endef
 
 define wrap_mirror

@@ -28,11 +28,12 @@
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <linux/limits.h>
 #include <netdb.h>
 #include <ctype.h>
-
+#include <errno.h>
 #include <dlfcn.h>
 
 
@@ -44,13 +45,16 @@
 #include <openssl/ssl.h>
 #endif
 
+/* uClibc... */
+#ifndef SOL_TCP
+#define SOL_TCP	6
+#endif
+
 
 #define UH_LIMIT_MSGHEAD	4096
 #define UH_LIMIT_HEADERS	64
 
-#define UH_LIMIT_LISTENERS	16
 #define UH_LIMIT_CLIENTS	64
-#define UH_LIMIT_AUTHREALMS	8
 
 #define UH_HTTP_MSG_GET		0
 #define UH_HTTP_MSG_HEAD	1
@@ -58,18 +62,27 @@
 
 struct listener;
 struct client;
+struct interpreter;
 struct http_request;
 
 struct config {
 	char docroot[PATH_MAX];
 	char *realm;
 	char *file;
+	char *index_file;
+	char *error_handler;
+	int no_symlinks;
+	int no_dirlists;
+	int network_timeout;
+	int rfc1918_filter;
+	int tcp_keepalive;
 #ifdef HAVE_CGI
 	char *cgi_prefix;
 #endif
 #ifdef HAVE_LUA
 	char *lua_prefix;
 	char *lua_handler;
+	lua_State *lua_state;
 	lua_State * (*lua_init) (const char *handler);
 	void (*lua_close) (lua_State *L);
 	void (*lua_request) (struct client *cl, struct http_request *req, lua_State *L);
@@ -99,6 +112,7 @@ struct listener {
 #ifdef HAVE_TLS
 	SSL_CTX *tls;
 #endif
+	struct listener *next;
 };
 
 struct client {
@@ -111,17 +125,20 @@ struct client {
 #ifdef HAVE_TLS
 	SSL *tls;
 #endif
+	struct client *next;
 };
 
 struct auth_realm {
 	char path[PATH_MAX];
 	char user[32];
 	char pass[128];
+	struct auth_realm *next;
 };
 
 struct http_request {
 	int	method;
 	float version;
+	int redirect_status;
 	char *url;
 	char *headers[UH_LIMIT_HEADERS];
 	struct auth_realm *realm;
@@ -132,6 +149,14 @@ struct http_response {
 	char *statusmsg;
 	char *headers[UH_LIMIT_HEADERS];
 };
+
+#ifdef HAVE_CGI
+struct interpreter {
+	char path[PATH_MAX];
+	char extn[32];
+	struct interpreter *next;
+};
+#endif
 
 #endif
 

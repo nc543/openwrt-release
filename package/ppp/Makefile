@@ -10,7 +10,7 @@ include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=ppp
 PKG_VERSION:=2.4.4
-PKG_RELEASE:=5
+PKG_RELEASE:=16
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=ftp://ftp.samba.org/pub/ppp/
@@ -37,6 +37,16 @@ endef
 
 define Package/ppp/description
 This package contains the PPP (Point-to-Point Protocol) daemon.
+endef
+
+define Package/ppp/conffiles
+/etc/ppp/chap-secrets
+/etc/ppp/filter
+/etc/ppp/ip-down
+/etc/ppp/ip-up
+/etc/ppp/ipv6-down
+/etc/ppp/ipv6-up
+/etc/ppp/options
 endef
 
 define Package/ppp-mod-pppoa
@@ -68,6 +78,11 @@ endef
 define Package/ppp-mod-radius/description
 This package contains a RADIUS (Remote Authentication Dial-In User Service)
 plugin for ppp.
+endef
+
+define Package/ppp-mod-radius/conffiles
+/etc/ppp/radius.conf
+/etc/ppp/radius/
 endef
 
 define Package/chat
@@ -140,15 +155,17 @@ define Package/ppp/install
 	$(INSTALL_BIN) ./files/etc/ppp/ipv6-up $(1)/etc/ppp/
 	$(INSTALL_BIN) ./files/etc/ppp/ipv6-down $(1)/etc/ppp/
 	$(INSTALL_DATA) ./files/etc/ppp/options $(1)/etc/ppp/
-	ln -sf /tmp/resolv.conf.auto $(1)/etc/ppp/resolv.conf
+	ln -sf /tmp/resolv.conf.ppp $(1)/etc/ppp/resolv.conf
 endef
-	
+
 define Package/ppp-mod-pppoa/install
 	$(INSTALL_DIR) $(1)/usr/lib/pppd/$(PKG_VERSION)
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/lib/pppd/$(PKG_VERSION)/pppoatm.so \
 		$(1)/usr/lib/pppd/$(PKG_VERSION)/
 	$(INSTALL_DIR) $(1)/lib/network
 	$(INSTALL_BIN) ./files/pppoa.sh $(1)/lib/network/
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/atm
+	$(INSTALL_DATA) ./files/etc/hotplug.d/atm/20-atm-modem $(1)/etc/hotplug.d/atm/
 endef
 
 define Package/ppp-mod-pppoe/install

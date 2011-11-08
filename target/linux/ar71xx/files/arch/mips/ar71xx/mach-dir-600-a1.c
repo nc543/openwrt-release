@@ -16,7 +16,6 @@
 #include "machtype.h"
 #include "devices.h"
 #include "dev-m25p80.h"
-#include "dev-ap91-eth.h"
 #include "dev-ap91-pci.h"
 #include "dev-gpio-buttons.h"
 #include "dev-leds-gpio.h"
@@ -130,7 +129,24 @@ static void __init dir_600_a1_setup(void)
 					ARRAY_SIZE(dir_600_a1_gpio_buttons),
 					dir_600_a1_gpio_buttons);
 
-	ap91_eth_init(mac, NULL);
+	ar71xx_eth1_data.has_ar7240_switch = 1;
+	ar71xx_set_mac_base(mac);
+
+	/* WAN port */
+	ar71xx_eth0_data.phy_if_mode = PHY_INTERFACE_MODE_RMII;
+	ar71xx_eth0_data.speed = SPEED_100;
+	ar71xx_eth0_data.duplex = DUPLEX_FULL;
+	ar71xx_eth0_data.phy_mask = BIT(4);
+
+	/* LAN ports */
+	ar71xx_eth1_data.phy_if_mode = PHY_INTERFACE_MODE_RMII;
+	ar71xx_eth1_data.speed = SPEED_1000;
+	ar71xx_eth1_data.duplex = DUPLEX_FULL;
+
+	ar71xx_add_device_mdio(0x0);
+	ar71xx_add_device_eth(1);
+	ar71xx_add_device_eth(0);
+
 	ap91_pci_init(ee, mac);
 }
 

@@ -2,6 +2,7 @@ wpa_supplicant_setup_vif() {
 	local vif="$1"
 	local driver="$2"
 	local key="$key"
+	local options="$3"
 
 	# wpa_supplicant should use wext for mac80211 cards
 	[ "$driver" = "mac80211" ] && driver='wext'
@@ -70,13 +71,16 @@ wpa_supplicant_setup_vif() {
 			key_mgmt='WPA-EAP'
 			config_get ieee80211w "$vif" ieee80211w
 			config_get ca_cert "$vif" ca_cert
+			config_get eap_type "$vif" eap_type
 			ca_cert=${ca_cert:+"ca_cert=\"$ca_cert\""}
 			case "$eap_type" in
 				tls)
 					pairwise='pairwise=CCMP'
 					group='group=CCMP'
+					config_get identity "$vif" identity
 					config_get priv_key "$vif" priv_key
 					config_get priv_key_pwd "$vif" priv_key_pwd
+					identity="identity=\"$identity\""
 					priv_key="private_key=\"$priv_key\""
 					priv_key_pwd="private_key_passwd=\"$priv_key_pwd\""
 				;;
@@ -132,5 +136,5 @@ network={
 }
 EOF
 	[ -z "$proto" -a "$key_mgmt" != "NONE" ] || \
-		wpa_supplicant ${bridge:+ -b $bridge} -B -P "/var/run/wifi-${ifname}.pid" -D ${driver:-wext} -i "$ifname" -c /var/run/wpa_supplicant-$ifname.conf
+		wpa_supplicant ${bridge:+ -b $bridge} -B -P "/var/run/wifi-${ifname}.pid" -D ${driver:-wext} -i "$ifname" -c /var/run/wpa_supplicant-$ifname.conf $options
 }

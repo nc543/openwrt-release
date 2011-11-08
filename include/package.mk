@@ -16,10 +16,19 @@ include $(INCLUDE_DIR)/host.mk
 include $(INCLUDE_DIR)/unpack.mk
 include $(INCLUDE_DIR)/depends.mk
 
-STAMP_PREPARED=$(PKG_BUILD_DIR)/.prepared$(if $(QUILT)$(DUMP),,_$(shell $(call find_md5,${CURDIR} $(PKG_FILE_DEPENDS),)))
+STAMP_NO_AUTOREBUILD=$(wildcard $(PKG_BUILD_DIR)/.no_autorebuild)
+PREV_STAMP_PREPARED:=$(if $(STAMP_NO_AUTOREBUILD),$(wildcard $(PKG_BUILD_DIR)/.prepared*))
+ifneq ($(PREV_STAMP_PREPARED),)
+  STAMP_PREPARED:=$(PREV_STAMP_PREPARED)
+  CONFIG_AUTOREBUILD:=
+else
+  STAMP_PREPARED=$(PKG_BUILD_DIR)/.prepared$(if $(QUILT)$(DUMP),,_$(shell $(call find_md5,${CURDIR} $(PKG_FILE_DEPENDS),)))
+endif
 STAMP_CONFIGURED:=$(PKG_BUILD_DIR)/.configured$(if $(DUMP),,_$(call confvar,$(PKG_CONFIG_DEPENDS)))
 STAMP_BUILT:=$(PKG_BUILD_DIR)/.built
 STAMP_INSTALLED:=$(STAGING_DIR)/stamp/.$(PKG_NAME)_installed
+
+STAGING_FILES_LIST:=$(PKG_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),).list
 
 include $(INCLUDE_DIR)/download.mk
 include $(INCLUDE_DIR)/quilt.mk
@@ -68,10 +77,6 @@ define Download/default
   MD5SUM:=$(PKG_MD5SUM)
 endef
 
-define sep
-
-endef
-
 define Build/Exports/Default
   $(1) : export ACLOCAL_INCLUDE=$$(foreach p,$$(wildcard $$(STAGING_DIR)/usr/share/aclocal $$(STAGING_DIR)/usr/share/aclocal-* $$(STAGING_DIR)/host/share/aclocal $$(STAGING_DIR)/host/share/aclocal-*),-I $$(p))
   $(1) : export STAGING_PREFIX=$$(STAGING_DIR)/usr
@@ -79,6 +84,7 @@ define Build/Exports/Default
   $(1) : export CONFIG_SITE:=$$(CONFIG_SITE)
   $(1) : export PKG_CONFIG_PATH=$$(STAGING_DIR)/usr/lib/pkgconfig
   $(1) : export PKG_CONFIG_LIBDIR=$$(STAGING_DIR)/usr/lib/pkgconfig
+  $(1) : export CCACHE_DIR:=$(STAGING_DIR)/ccache
 endef
 Build/Exports=$(Build/Exports/Default)
 
@@ -125,7 +131,7 @@ define Build/DefaultTargets
 		$(call $(hook),$(TMP_DIR)/stage-$(PKG_NAME),$(TMP_DIR)/stage-$(PKG_NAME)/host)$(sep)\
 	)
 	if [ -d $(TMP_DIR)/stage-$(PKG_NAME) ]; then \
-		(cd $(TMP_DIR)/stage-$(PKG_NAME); find ./ > $(STAGING_DIR)/packages/$(PKG_NAME).list); \
+		(cd $(TMP_DIR)/stage-$(PKG_NAME); find ./ > $(STAGING_DIR)/packages/$(STAGING_FILES_LIST)); \
 		$(CP) $(TMP_DIR)/stage-$(PKG_NAME)/* $(STAGING_DIR)/; \
 	fi
 	rm -rf $(TMP_DIR)/stage-$(PKG_NAME)
@@ -213,15 +219,15 @@ clean-staging: FORCE
 	rm -f $(STAMP_INSTALLED)
 	@-(\
 		cd "$(STAGING_DIR)"; \
-		if [ -f packages/$(PKG_NAME).list ]; then \
-			cat packages/$(PKG_NAME).list | xargs -r rm -f 2>/dev/null; \
+		if [ -f packages/$(STAGING_FILES_LIST) ]; then \
+			cat packages/$(STAGING_FILES_LIST) | xargs -r rm -f 2>/dev/null; \
 		fi; \
 	)
 
 clean: clean-staging FORCE
 	$(call Build/UninstallDev,$(STAGING_DIR),$(STAGING_DIR_HOST))
 	$(Build/Clean)
-	rm -f $(STAGING_DIR)/packages/$(PKG_NAME).list $(STAGING_DIR_HOST)/packages/$(PKG_NAME).list
+	rm -f $(STAGING_DIR)/packages/$(STAGING_FILES_LIST) $(STAGING_DIR_HOST)/packages/$(STAGING_FILES_LIST)
 	rm -rf $(PKG_BUILD_DIR)
 
 dist:

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2009 OpenWrt.org
+# Copyright (C) 2009-2010 OpenWrt.org
 # Copyright (C) 2010 Vertical Communications
 #
 # This is free software, licensed under the GNU General Public License v2.
@@ -10,23 +10,22 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=block-extroot
 PKG_VERSION:=0.0.1
-PKG_RELEASE:=1
+PKG_RELEASE:=2.1
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
 include $(INCLUDE_DIR)/package.mk
 
 define Package/block-extroot/Default
-  SECTION:=utils
-  CATEGORY:=Utilities
+  SECTION:=base
+  CATEGORY:=Base system
   TITLE:=root filesystem on secondary storage
-  SUBMENU:=disc
 endef
 
 define Package/block-extroot
   $(call Package/block-extroot/Default)
   MENU:=1
-  DEPENDS:=+block-mount @PACKAGE_kmod-ide-core||PACKAGE_kmod-usb-storage||PACKAGE_kmod-mmc
+  DEPENDS:=+block-mount @PACKAGE_kmod-ide-core||PACKAGE_kmod-ata-core||PACKAGE_kmod-usb-storage||PACKAGE_kmod-mmc||PACKAGE_kmod-broadcom-sdhc
 endef
 
 define Package/block-extroot/config
@@ -54,6 +53,7 @@ define Package/block-extroot/install
 	$(INSTALL_DATA) ./files/extmount.sh $(1)/lib/functions/
 	$(INSTALL_DIR) $(1)/lib/preinit
 	$(INSTALL_DATA) ./files/50_determine_usb_root $(1)/lib/preinit/
+	$(INSTALL_DATA) ./files/55_determine_extroot_sysupgrade $(1)/lib/preinit/
 	$(INSTALL_DATA) ./files/60_pivot_usb_root $(1)/lib/preinit/
 	$(INSTALL_DIR) $(1)/lib/preinit
 	echo "extroot_settle_time=\"$(CONFIG_EXTROOT_SETTLETIME)\"" >$(1)/lib/preinit/00_extroot.conf

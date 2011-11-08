@@ -64,11 +64,12 @@ platform_do_upgrade_combined() {
 platform_check_image() {
 	local board=$(ar71xx_board_name)
 	local magic="$(get_magic_word "$1")"
+	local magic_long="$(get_magic_long "$1")"
 
 	[ "$ARGC" -gt 1 ] && return 1
 
 	case "$board" in
-	ap81 | ap83 | dir-600-a1 | dir-615-c1 | dir-825-b1 | mzk-w04nu | mzk-w300nh | tew-632brp | wrt400n | bullet-m | nano-m | rocket-m | wzr-hp-g300nh)
+	ap81 | ap83 | dir-600-a1 | dir-615-c1 | dir-825-b1 | mzk-w04nu | mzk-w300nh | tew-632brp | wrt400n | bullet-m | nanostation-m | rocket-m | wzr-hp-g300nh )
 		[ "$magic" != "2705" ] && {
 			echo "Invalid image type."
 			return 1
@@ -83,7 +84,14 @@ platform_check_image() {
 		return 0
 		;;
 	wndr3700)
-		[ "$magic" != "3337" ] && {
+		[ "$magic_long" != "33373030" ] && {
+			echo "Invalid image type."
+			return 1
+		}
+		return 0
+		;;
+	wndr3700v2)
+		[ "$magic_long" != "33373031" ] && {
 			echo "Invalid image type."
 			return 1
 		}

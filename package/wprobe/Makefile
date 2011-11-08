@@ -1,5 +1,5 @@
-# 
-# Copyright (C) 2008 OpenWrt.org
+#
+# Copyright (C) 2008-2010 OpenWrt.org
 #
 # This is free software, licensed under the GNU General Public License v2.
 # See /LICENSE for more information.
@@ -9,6 +9,7 @@ include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=wprobe
 PKG_VERSION:=1
+PKG_RELEASE:=1
 
 PKG_BUILD_DEPENDS:=PACKAGE_wprobe-export:libipfix
 
@@ -64,6 +65,10 @@ endef
 define Package/wprobe-export/description
   wprobe-export uses the wprobe kernel module to export
   wireless driver measurement data via the IPFIX protocol
+endef
+
+define Package/wprobe-export/conffiles
+/etc/config/wprobe
 endef
 
 define Build/Prepare

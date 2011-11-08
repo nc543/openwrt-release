@@ -62,9 +62,10 @@ $(eval $(call KernelPackage,crc7))
 define KernelPackage/crc16
   SUBMENU:=$(OTHER_MENU)
   TITLE:=CRC16 support
+  DEPENDS:=@!(LINUX_2_4||TARGET_xburst)
   KCONFIG:=CONFIG_CRC16
   FILES:=$(LINUX_DIR)/lib/crc16.$(LINUX_KMOD_SUFFIX)
-  AUTOLOAD:=$(call AutoLoad,20,crc16)
+  AUTOLOAD:=$(call AutoLoad,20,crc16,1)
 endef
 
 define KernelPackage/crc16/description
@@ -105,7 +106,21 @@ define KernelPackage/lp
   AUTOLOAD:=$(call AutoLoad,50,parport lp)
 endef
 
+define KernelPackage/lp/2.4
+  FILES:= \
+	$(LINUX_DIR)/drivers/parport/parport.$(LINUX_KMOD_SUFFIX) \
+	$(LINUX_DIR)/drivers/parport/parport_*.$(LINUX_KMOD_SUFFIX) \
+	$(LINUX_DIR)/drivers/char/lp.$(LINUX_KMOD_SUFFIX) \
+	$(LINUX_DIR)/drivers/char/ppdev.$(LINUX_KMOD_SUFFIX)
+  AUTOLOAD:=$(call AutoLoad,50, \
+  	parport \
+  	parport_splink \
+  	lp \
+  )
+endef
+
 $(eval $(call KernelPackage,lp))
+
 
 define KernelPackage/pcspkr
   SUBMENU:=$(OTHER_MENU)
@@ -261,7 +276,8 @@ $(eval $(call KernelPackage,ssb))
 define KernelPackage/bluetooth
   SUBMENU:=$(OTHER_MENU)
   TITLE:=Bluetooth support
-  DEPENDS:=@USB_SUPPORT +kmod-usb-core +!TARGET_x86:kmod-hid
+  DEPENDS:=@USB_SUPPORT +!(LINUX_2_4||TARGET_xburst):kmod-crc16 +kmod-usb-core +!TARGET_x86:kmod-hid \
+	+(TARGET_x86||TARGET_s3c24xx||TARGET_brcm47xx||TARGET_ar71xx):kmod-rfkill
   KCONFIG:= \
 	CONFIG_BLUEZ \
 	CONFIG_BLUEZ_L2CAP \
@@ -651,8 +667,16 @@ $(eval $(call KernelPackage,sc520-wdt))
 define KernelPackage/input-core
   SUBMENU:=$(OTHER_MENU)
   TITLE:=Input device core
-  DEPENDS:=@LINUX_2_6 @!TARGET_x86
+  DEPENDS:=@!TARGET_x86
   KCONFIG:=CONFIG_INPUT
+endef
+
+define KernelPackage/input-core/2.4
+  FILES:=$(LINUX_DIR)/drivers/input/input.$(LINUX_KMOD_SUFFIX)
+  AUTOLOAD:=$(call AutoLoad,19,input)
+endef
+
+define KernelPackage/input-core/2.6
   FILES:=$(LINUX_DIR)/drivers/input/input-core.$(LINUX_KMOD_SUFFIX)
   AUTOLOAD:=$(call AutoLoad,19,input-core)
 endef
@@ -798,7 +822,7 @@ $(eval $(call KernelPackage,mmc-atmelmci,1))
 define KernelPackage/cs5535-gpio
   SUBMENU:=$(OTHER_MENU)
   TITLE:=AMD CS5535/CS5536 GPIO driver
-  DEPENDS:=@TARGET_x86||@TARGET_olpc
+  DEPENDS:=@TARGET_x86
   KCONFIG:=CONFIG_CS5535_GPIO
   FILES:=$(LINUX_DIR)/drivers/char/cs5535_gpio.$(LINUX_KMOD_SUFFIX)
   AUTOLOAD:=$(call AutoLoad,90,cs5535_gpio)
@@ -848,10 +872,25 @@ endef
 $(eval $(call KernelPackage,textsearch))
 
 
+define KernelPackage/oprofile
+  SUBMENU:=$(OTHER_MENU)
+  TITLE:=OProfile profiling support
+  KCONFIG:=CONFIG_OPROFILE
+  FILES:=$(LINUX_DIR)/arch/$(LINUX_KARCH)/oprofile/oprofile.$(LINUX_KMOD_SUFFIX)
+  DEPENDS:=@KERNEL_PROFILING @!LINUX_2_4
+endef
+
+define KernelPackage/oprofile/description
+  Kernel module for support for oprofile system profiling.
+endef
+
+$(eval $(call KernelPackage,oprofile))
+
+
 define KernelPackage/rfkill
   SUBMENU:=$(OTHER_MENU)
   TITLE:=RF switch subsystem support
-  DEPENDS:=@TARGET_x86||TARGET_olpc||TARGET_s3c24xx||TARGET_brcm47xx||TARGET_ar71xx
+  DEPENDS:=@TARGET_x86||TARGET_s3c24xx||TARGET_brcm47xx||TARGET_ar71xx
   KCONFIG:= \
     CONFIG_RFKILL \
     CONFIG_RFKILL_INPUT=y \
@@ -874,3 +913,33 @@ define KernelPackage/rfkill/description
 endef
 
 $(eval $(call KernelPackage,rfkill))
+
+define KernelPackage/eeprom-at24
+  SUBMENU:=$(OTHER_MENU)
+  TITLE:=EEPROM AT24 support
+  KCONFIG:=CONFIG_EEPROM_AT24
+  DEPENDS:=+kmod-i2c-core
+  FILES:=$(LINUX_DIR)/drivers/misc/eeprom/at24.ko
+  AUTOLOAD:=$(call AutoLoad,60,at24)
+endef
+
+define KernelPackage/eeprom-at24/description
+ Kernel module for most I2C EEPROMs
+endef
+
+$(eval $(call KernelPackage,eeprom-at24))
+
+
+define KernelPackage/eeprom-at25
+  SUBMENU:=$(OTHER_MENU)
+  TITLE:=EEPROM AT25 support
+  KCONFIG:=CONFIG_EEPROM_AT25
+  FILES:=$(LINUX_DIR)/drivers/misc/eeprom/at25.ko
+  AUTOLOAD:=$(call AutoLoad,61,at25)
+endef
+
+define KernelPackage/eeprom-at25/description
+ Kernel module for most SPI EEPROMs
+endef
+
+$(eval $(call KernelPackage,eeprom-at25))

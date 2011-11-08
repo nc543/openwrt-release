@@ -6,10 +6,15 @@ mac80211_hostapd_setup_base() {
 	local ifname="$2"
 
 	cfgfile="/var/run/hostapd-$phy.conf"
+	macfile="/var/run/hostapd-$phy.maclist"
+	[ -e "$macfile" ] && rm -f "$macfile"
+
 	config_get device "$vif" device
 	config_get country "$device" country
 	config_get hwmode "$device" hwmode
 	config_get channel "$device" channel
+	config_get beacon_int "$device" beacon_int
+	config_get basic_rate_list "$device" basic_rate
 	config_get_bool noscan "$device" noscan
 	[ -n "$channel" -a -z "$hwmode" ] && wifi_fixup_hwmode "$device"
 	[ "$channel" = auto ] && channel=
@@ -30,7 +35,40 @@ mac80211_hostapd_setup_base() {
 			[ -n "$ht_capab" ] && append base_cfg "ht_capab=$ht_capab" "$N"
 		}
 	}
-	cat > "$cfgfile" <<EOF
+
+	local country_ie=0
+	[ -n "$country" ] && country_ie=1
+	config_get_bool country_ie "$device" country_ie "$country_ie"
+	[ "$country_ie" -gt 0 ] && append base_cfg "ieee80211d=1" "$N"
+
+	config_get macfilter "$vif" macfilter
+	case "$macfilter" in
+		allow)
+			append base_cfg "macaddr_acl=1" "$N"
+			append base_cfg "accept_mac_file=$macfile" "$N"
+			;;
+		deny)
+			append base_cfg "macaddr_acl=0" "$N"
+			append base_cfg "deny_mac_file=$macfile" "$N"
+			;;
+	esac
+	config_get maclist "$vif" maclist
+	[ -n "$maclist" ] && {
+		for mac in $maclist; do
+			echo "$mac" >> $macfile
+		done
+	}
+
+	local br brval brstr
+	[ -n "$basic_rate_list" ] && {
+		for br in $basic_rate_list; do
+			brval="$(($br / 100))"
+			[ -n "$brstr" ] && brstr="$brstr "
+			brstr="$brstr$brval"
+		done
+	}
+	
+	cat >> "$cfgfile" <<EOF
 ctrl_interface=/var/run/hostapd-$phy
 driver=nl80211
 wmm_ac_bk_cwmin=4
@@ -71,8 +109,10 @@ tx_queue_data0_cwmax=7
 tx_queue_data0_burst=1.5
 ${hwmode:+hw_mode=$hwmode}
 ${channel:+channel=$channel}
+${beacon_int:+beacon_int=$beacon_int}
 ${country:+country_code=$country}
 ${noscan:+noscan=$noscan}
+${brstr:+basic_rates=$brstr}
 $base_cfg
 
 EOF
@@ -103,13 +143,21 @@ mac80211_hostapd_setup_bss() {
 	config_get_bool wds "$vif" wds 0
 	[ "$wds" -gt 0 ] && append hostapd_cfg "wds_sta=1" "$N"
 
+	local macaddr hidden maxassoc wmm
 	config_get macaddr "$vif" macaddr
+	config_get maxassoc "$vif" maxassoc
+	config_get dtim_period "$vif" dtim_period
+	config_get max_listen_int "$vif" max_listen_int
 	config_get_bool hidden "$vif" hidden 0
+	config_get_bool wmm "$vif" wmm 1
 	cat >> /var/run/hostapd-$phy.conf <<EOF
 $hostapd_cfg
-wmm_enabled=1
+wmm_enabled=$wmm
 bssid=$macaddr
 ignore_broadcast_ssid=$hidden
+${dtim_period:+dtim_period=$dtim_period}
+${max_listen_int:+max_listen_interval=$max_listen_int}
+${maxassoc:+max_num_sta=$maxassoc}
 EOF
 }
 
@@ -165,6 +213,14 @@ scan_mac80211() {
 	config_set "$device" vifs "${ap:+$ap }${adhoc:+$adhoc }${sta:+$sta }${monitor:+$monitor }${mesh:+$mesh}"
 }
 
+list_phy_interfaces() {
+	local phy="$1"
+	if [ -d "/sys/class/ieee80211/${phy}/device/net" ]; then
+		ls "/sys/class/ieee80211/${phy}/device/net" 2>/dev/null;
+	else
+		ls "/sys/class/ieee80211/${phy}/device" 2>/dev/null | grep net: | sed -e 's,net:,,g'
+	fi
+}
 
 disable_mac80211() (
 	local device="$1"
@@ -181,7 +237,7 @@ disable_mac80211() (
 	done
 
 	include /lib/network
-	for wdev in $(ls /sys/class/ieee80211/${phy}/device/net 2>/dev/null); do
+	for wdev in $(list_phy_interfaces "$phy"); do
 		[ -f "/var/run/$wdev.pid" ] && kill $(cat /var/run/$wdev.pid) >&/dev/null 2>&1
 		for pid in `pidof wpa_supplicant`; do
 			grep "$wdev" /proc/$pid/cmdline >/dev/null && \
@@ -206,19 +262,28 @@ enable_mac80211() {
 	config_get txpower "$device" txpower
 	config_get country "$device" country
 	config_get distance "$device" distance
+	config_get txantenna "$device" txantenna all
+	config_get rxantenna "$device" rxantenna all
+	config_get frag "$device" frag
+	config_get rts "$device" rts
 	find_mac80211_phy "$device" || return 0
 	config_get phy "$device" phy
 	local i=0
 	local macidx=0
 	local apidx=0
 	fixed=""
+	local hostapd_ctrl=""
 
 	[ -n "$country" ] && iw reg set "$country"
 	[ "$channel" = "auto" -o "$channel" = "0" ] || {
 		fixed=1
 	}
 
+	iw phy "$phy" set antenna $txantenna $rxantenna >/dev/null 2>&1
+
 	[ -n "$distance" ] && iw phy "$phy" set distance "$distance"
+	[ -n "$frag" ] && iw phy "$phy" set frag "${frag%%.*}"
+	[ -n "$rts" ] && iw phy "$phy" set rts "${rts%%.*}"
 
 	export channel fixed
 	# convert channel to frequency
@@ -304,22 +369,11 @@ enable_mac80211() {
 			[ -n "$fixed" -a -n "$channel" ] && iw dev "$ifname" set channel "$channel"
 		fi
 
-		# txpower is not yet implemented in iw
 		config_get vif_txpower "$vif" txpower
 		# use vif_txpower (from wifi-iface) to override txpower (from
 		# wifi-device) if the latter doesn't exist
 		txpower="${txpower:-$vif_txpower}"
-		[ -z "$txpower" ] || iwconfig "$ifname" txpower "${txpower%%.*}"
-
-		config_get frag "$vif" frag
-		if [ -n "$frag" ]; then
-			iw phy "$phy" set frag "${frag%%.*}"
-		fi
-
-		config_get rts "$vif" rts
-		if [ -n "$rts" ]; then
-			iw phy "$phy" set rts "${rts%%.*}"
-		fi
+		[ -z "$txpower" ] || iw dev "$ifname" set txpower fixed "${txpower%%.*}00"
 	done
 
 	local start_hostapd=
@@ -342,6 +396,7 @@ enable_mac80211() {
 			config_get mode "$vif" mode
 			config_get ifname "$vif" ifname
 			[ "$mode" = "ap" ] || continue
+			hostapd_ctrl="${hostapd_ctrl:-/var/run/hostapd-$phy/$ifname}"
 			mac80211_start_vif "$vif" "$ifname"
 		done
 	}
@@ -358,11 +413,66 @@ enable_mac80211() {
 				adhoc)
 					config_get bssid "$vif" bssid
 					config_get ssid "$vif" ssid
-					iw dev "$ifname" ibss join "$ssid" $freq ${fixed:+fixed-freq} $bssid
+					config_get beacon_int "$device" beacon_int
+					config_get basic_rate_list "$device" basic_rate
+					config_get encryption "$vif" encryption
+					config_get key "$vif" key 1
+					config_get mcast_rate "$vif" mcast_rate
+
+					local keyspec=""
+					[ "$encryption" == "wep" ] && {
+						case "$key" in
+							[1234])
+								local idx
+								for idx in 1 2 3 4; do
+									local ikey
+									config_get ikey "$vif" "key$idx"
+
+									[ -n "$ikey" ] && {
+										ikey="$(($idx - 1)):$(prepare_key_wep "$ikey")"
+										[ $idx -eq $key ] && ikey="d:$ikey"
+										append keyspec "$ikey"
+									}
+								done
+							;;
+							*) append keyspec "d:0:$(prepare_key_wep "$key")" ;;
+						esac
+					}
+
+					local br brval brsub brstr
+					[ -n "$basic_rate_list" ] && {
+						for br in $basic_rate_list; do
+							brval="$(($br / 1000))"
+							brsub="$((($br / 100) % 10))"
+							[ "$brsub" -gt 0 ] && brval="$brval.$brsub"
+							[ -n "$brstr" ] && brstr="$brstr,"
+							brstr="$brstr$brval"
+						done
+					}
+
+					local mcval=""
+					[ -n "$mcast_rate" ] && {
+						mcval="$(($mcast_rate / 1000))"
+						mcsub="$(( ($mcast_rate / 100) % 10 ))"
+						[ "$mcsub" -gt 0 ] && mcval="$mcval.$mcsub"
+					}
+
+					config_get htmode "$device" htmode
+					case "$htmode" in
+						HT20|HT40+|HT40-) ;;
+						*) htmode= ;;
+					esac
+
+					iw dev "$ifname" ibss join "$ssid" $freq $htmode \
+						${fixed:+fixed-freq} $bssid \
+						${beacon_int:+beacon-interval $beacon_int} \
+						${brstr:+basic-rates $brstr} \
+						${mcval:+mcast-rate $mcval} \
+						${keyspec:+keys $keyspec}
 				;;
 				sta)
 					if eval "type wpa_supplicant_setup_vif" 2>/dev/null >/dev/null; then
-						wpa_supplicant_setup_vif "$vif" wext || {
+						wpa_supplicant_setup_vif "$vif" nl80211 "${hostapd_ctrl:+-H $hostapd_ctrl}" || {
 							echo "enable_mac80211($device): Failed to set up wpa_supplicant for interface $ifname" >&2
 							# make sure this wifi interface won't accidentally stay open without encryption
 							ifconfig "$ifname" down
@@ -378,7 +488,7 @@ enable_mac80211() {
 }
 
 
-check_device() {
+check_mac80211_device() {
 	config_get phy "$1" phy
 	[ -z "$phy" ] && {
 		find_mac80211_phy "$1" >/dev/null || return 0
@@ -397,12 +507,12 @@ detect_mac80211() {
 	done
 	for dev in $(ls /sys/class/ieee80211); do
 		found=0
-		config_foreach check_device wifi-device
+		config_foreach check_mac80211_device wifi-device
 		[ "$found" -gt 0 ] && continue
 
 		mode_11n=""
 		mode_band="g"
-		channel="5"
+		channel="11"
 		ht_cap=0
 		for cap in $(iw phy "$dev" info | grep 'Capabilities:' | cut -d: -f2); do
 			ht_cap="$(($ht_cap | $cap))"
@@ -414,8 +524,13 @@ detect_mac80211() {
 
 			list="	list ht_capab"
 			[ "$(($ht_cap & 1))" -eq 1 ] && append ht_capab "$list	LDPC" "$N"
+			[ "$(($ht_cap & 16))" -eq 16 ] && append ht_capab "$list	GF" "$N"
 			[ "$(($ht_cap & 32))" -eq 32 ] && append ht_capab "$list	SHORT-GI-20" "$N"
 			[ "$(($ht_cap & 64))" -eq 64 ] && append ht_capab "$list	SHORT-GI-40" "$N"
+			[ "$(($ht_cap & 128))" -eq 128 ] && append ht_capab "$list	TX-STBC" "$N"
+			[ "$(($ht_cap & 768))" -eq 256 ] && append ht_capab "$list	RX-STBC1" "$N"
+			[ "$(($ht_cap & 768))" -eq 512 ] && append ht_capab "$list	RX-STBC12" "$N"
+			[ "$(($ht_cap & 768))" -eq 768 ] && append ht_capab "$list	RX-STBC123" "$N"
 			[ "$(($ht_cap & 4096))" -eq 4096 ] && append ht_capab "$list	DSSS_CCK-40" "$N"
 		}
 		iw phy "$dev" info | grep -q '2412 MHz' || { mode_band="a"; channel="36"; }

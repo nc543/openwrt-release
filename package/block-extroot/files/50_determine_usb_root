@@ -4,11 +4,10 @@
 # See /LICENSE for more information.
 
 
-. /etc/functions.sh
-. /lib/functions/extmount.sh
-. /lib/functions/mount.sh
-
 determine_external_root() {
+	pi_include /lib/functions/extmount.sh
+	pi_include /lib/functions/mount.sh
+
 	local OLD_UCI_CONFIG_DIR="$UCI_CONFIG_DIR"
 	set_jffs_mp
 	determine_root_device
@@ -19,6 +18,7 @@ determine_external_root() {
 	if [ "$jffs" = "/tmp/overlay" ] && [ -r "/tmp/overlay/etc/config/fstab" ]; then
 		UCI_CONFIG_DIR="/tmp/overlay/etc/config"
 		ER_IS_SQUASHFS=true
+		ER_OVERLAY_PREFIX="/tmp/overlay"
 	fi
 
 	# For squashfs on firstboot root_device will be tmpfs for the ramoverlay,

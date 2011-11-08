@@ -14,7 +14,7 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/delay.h>
-#include <linux/rtl8366s.h>
+#include <linux/rtl8366.h>
 
 #include <asm/mach-ar71xx/ar71xx.h>
 
@@ -130,9 +130,15 @@ static struct gpio_button dir825b1_gpio_buttons[] __initdata = {
 	}
 };
 
-static struct rtl8366s_platform_data dir825b1_rtl8366s_data = {
-	.gpio_sda        = DIR825B1_GPIO_RTL8366_SDA,
-	.gpio_sck        = DIR825B1_GPIO_RTL8366_SCK,
+static struct rtl8366_initval dir825b1_rtl8366s_initvals[] = {
+	{ .reg = 0x06, .val = 0x0108 },
+};
+
+static struct rtl8366_platform_data dir825b1_rtl8366s_data = {
+	.gpio_sda	= DIR825B1_GPIO_RTL8366_SDA,
+	.gpio_sck	= DIR825B1_GPIO_RTL8366_SCK,
+	.num_initvals	= ARRAY_SIZE(dir825b1_rtl8366s_initvals),
+	.initvals	= dir825b1_rtl8366s_initvals,
 };
 
 static struct platform_device dir825b1_rtl8366s_device = {
@@ -181,6 +187,9 @@ static void __init dir825b1_setup(void)
 	ar71xx_add_device_usb();
 
 	platform_device_register(&dir825b1_rtl8366s_device);
+
+	ap94_pci_setup_wmac_led_pin(0, 5);
+	ap94_pci_setup_wmac_led_pin(1, 5);
 
 	ap94_pci_init((u8 *) KSEG1ADDR(DIR825B1_CAL_LOCATION_0),
 		      (u8 *) KSEG1ADDR(DIR825B1_MAC_LOCATION_0),

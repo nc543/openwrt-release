@@ -39,7 +39,7 @@ get_status_led() {
 	aw-nr580)
 		status_led="aw-nr580:green:ready"
 		;;
-	bullet-m | rocket-m | nano-m)
+	bullet-m | rocket-m | nano-m | nanostation-m)
 		status_led="ubnt:green:link4"
 		;;
 	dir-600-a1)
@@ -84,7 +84,7 @@ get_status_led() {
 	tl-wr941nd)
 		status_led="tl-wr941nd:green:system"
 		;;
-	wndr3700)
+	wndr3700 | wndr3700v2)
 		status_led="wndr3700:green:power"
 		;;
 	wnr2000)

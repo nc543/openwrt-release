@@ -33,6 +33,7 @@
 
 /* size of the vlan table */
 #define AR8X16_MAX_VLANS	128
+#define AR8X16_PROBE_RETRIES	10
 
 struct ar8216_priv {
 	struct switch_dev dev;
@@ -51,7 +52,6 @@ struct ar8216_priv {
 	u8 vlan_tagged;
 	u16 pvid[AR8216_NUM_PORTS];
 };
-static struct switch_dev athdev;
 
 #define to_ar8216(_dev) container_of(_dev, struct ar8216_priv, dev)
 
@@ -119,18 +119,35 @@ ar8216_id_chip(struct ar8216_priv *priv)
 {
 	u32 val;
 	u16 id;
+	int i;
+
 	val = ar8216_mii_read(priv, AR8216_REG_CTRL);
+	if (val == ~0)
+		return UNKNOWN;
+
 	id = val & (AR8216_CTRL_REVISION | AR8216_CTRL_VERSION);
+	for (i = 0; i < AR8X16_PROBE_RETRIES; i++) {
+		u16 t;
+
+		val = ar8216_mii_read(priv, AR8216_REG_CTRL);
+		if (val == ~0)
+			return UNKNOWN;
+
+		t = val & (AR8216_CTRL_REVISION | AR8216_CTRL_VERSION);
+		if (t != id)
+			return UNKNOWN;
+	}
+
 	switch (id) {
 	case 0x0101:
 		return AR8216;
 	case 0x1001:
 		return AR8316;
 	default:
-		printk(KERN_ERR
+		printk(KERN_DEBUG
 			"ar8216: Unknown Atheros device [ver=%d, rev=%d, phy_id=%04x%04x]\n",
-			(int)(val >> AR8216_CTRL_VERSION_S),
-			(int)(val & AR8216_CTRL_REVISION),
+			(int)(id >> AR8216_CTRL_VERSION_S),
+			(int)(id & AR8216_CTRL_REVISION),
 			priv->phy->bus->read(priv->phy->bus, priv->phy->addr, 2),
 			priv->phy->bus->read(priv->phy->bus, priv->phy->addr, 3));
 
@@ -279,7 +296,7 @@ recv:
 error:
 	/* no vlan? eat the packet! */
 	dev_kfree_skb_any(skb);
-	return 0;
+	return NET_RX_DROP;
 }
 
 static int
@@ -312,8 +329,8 @@ static struct switch_attr ar8216_port[] = {
 static struct switch_attr ar8216_vlan[] = {
 	{
 		.type = SWITCH_TYPE_INT,
-		.name = "pvid",
-		.description = "VLAN ID",
+		.name = "vid",
+		.description = "VLAN ID (0-4094)",
 		.set = ar8216_set_vid,
 		.get = ar8216_get_vid,
 		.max = 4094,
@@ -613,11 +630,34 @@ ar8216_reset_switch(struct switch_dev *dev)
 	return ar8216_hw_apply(dev);
 }
 
+
+static const struct switch_dev_ops ar8216_ops = {
+	.attr_global = {
+		.attr = ar8216_globals,
+		.n_attr = ARRAY_SIZE(ar8216_globals),
+	},
+	.attr_port = {
+		.attr = ar8216_port,
+		.n_attr = ARRAY_SIZE(ar8216_port),
+	},
+	.attr_vlan = {
+		.attr = ar8216_vlan,
+		.n_attr = ARRAY_SIZE(ar8216_vlan),
+	},
+	.get_port_pvid = ar8216_get_pvid,
+	.set_port_pvid = ar8216_set_pvid,
+	.get_vlan_ports = ar8216_get_ports,
+	.set_vlan_ports = ar8216_set_ports,
+	.apply_config = ar8216_hw_apply,
+	.reset_switch = ar8216_reset_switch,
+};
+
 static int
 ar8216_config_init(struct phy_device *pdev)
 {
 	struct ar8216_priv *priv;
 	struct net_device *dev = pdev->attached_dev;
+	struct switch_dev *swdev;
 	int ret;
 
 	priv = kzalloc(sizeof(struct ar8216_priv), GFP_KERNEL);
@@ -628,8 +668,10 @@ ar8216_config_init(struct phy_device *pdev)
 
 	priv->chip = ar8216_id_chip(priv);
 
-	printk(KERN_INFO "%s: AR%d PHY driver attached.\n",
-		pdev->attached_dev->name, priv->chip);
+	if (pdev->addr == 0)
+		printk(KERN_INFO "%s: AR%d switch driver attached.\n",
+			pdev->attached_dev->name, priv->chip);
+
 
 	if (pdev->addr != 0) {
 		if (priv->chip == AR8316) {
@@ -647,14 +689,22 @@ ar8216_config_init(struct phy_device *pdev)
 	mutex_init(&priv->reg_mutex);
 	priv->read = ar8216_mii_read;
 	priv->write = ar8216_mii_write;
-	memcpy(&priv->dev, &athdev, sizeof(struct switch_dev));
+
 	pdev->priv = priv;
 
+	swdev = &priv->dev;
+	swdev->cpu_port = AR8216_PORT_CPU;
+	swdev->ops = &ar8216_ops;
+
 	if (priv->chip == AR8316) {
-		priv->dev.name = "Atheros AR8316";
-		priv->dev.vlans = AR8X16_MAX_VLANS;
+		swdev->name = "Atheros AR8316";
+		swdev->vlans = AR8X16_MAX_VLANS;
 		/* port 5 connected to the other mac, therefore unusable */
-		priv->dev.ports = (AR8216_NUM_PORTS - 1);
+		swdev->ports = (AR8216_NUM_PORTS - 1);
+	} else {
+		swdev->name = "Atheros AR8216";
+		swdev->vlans = AR8216_NUM_VLANS;
+		swdev->ports = AR8216_NUM_PORTS;
 	}
 
 	if ((ret = register_switch(&priv->dev, pdev->attached_dev)) < 0) {
@@ -736,11 +786,13 @@ static int
 ar8216_probe(struct phy_device *pdev)
 {
 	struct ar8216_priv priv;
+	u16 chip;
 
 	priv.phy = pdev;
-	if (ar8216_id_chip(&priv) == UNKNOWN) {
+	chip = ar8216_id_chip(&priv);
+	if (chip == UNKNOWN)
 		return -ENODEV;
-	}
+
 	return 0;
 }
 
@@ -759,32 +811,6 @@ ar8216_remove(struct phy_device *pdev)
 		unregister_switch(&priv->dev);
 	kfree(priv);
 }
-
-/* template */
-static struct switch_dev athdev = {
-	.name = "Atheros AR8216",
-	.cpu_port = AR8216_PORT_CPU,
-	.ports = AR8216_NUM_PORTS,
-	.vlans = AR8216_NUM_VLANS,
-	.attr_global = {
-		.attr = ar8216_globals,
-		.n_attr = ARRAY_SIZE(ar8216_globals),
-	},
-	.attr_port = {
-		.attr = ar8216_port,
-		.n_attr = ARRAY_SIZE(ar8216_port),
-	},
-	.attr_vlan = {
-		.attr = ar8216_vlan,
-		.n_attr = ARRAY_SIZE(ar8216_vlan),
-	},
-	.get_port_pvid = ar8216_get_pvid,
-	.set_port_pvid = ar8216_set_pvid,
-	.get_vlan_ports = ar8216_get_ports,
-	.set_vlan_ports = ar8216_set_ports,
-	.apply_config = ar8216_hw_apply,
-	.reset_switch = ar8216_reset_switch,
-};
 
 static struct phy_driver ar8216_driver = {
 	.phy_id		= 0x004d0000,

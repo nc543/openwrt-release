@@ -7,43 +7,10 @@
 
 WIRELESS_MENU:=Wireless Drivers
 
-define KernelPackage/lib80211
-  SUBMENU:=$(WIRELESS_MENU)
-  TITLE:=802.11 Networking stack
-  DEPENDS:=@!LINUX_2_4
-  KCONFIG:= \
-	CONFIG_LIB80211 \
-	CONFIG_LIB80211_CRYPT_WEP \
-	CONFIG_LIB80211_CRYPT_TKIP \
-	CONFIG_LIB80211_CRYPT_CCMP
-  FILES:= \
-  	$(LINUX_DIR)/net/wireless/lib80211.$(LINUX_KMOD_SUFFIX) \
-  	$(LINUX_DIR)/net/wireless/lib80211_crypt_wep.$(LINUX_KMOD_SUFFIX) \
-  	$(LINUX_DIR)/net/wireless/lib80211_crypt_ccmp.$(LINUX_KMOD_SUFFIX) \
-  	$(LINUX_DIR)/net/wireless/lib80211_crypt_tkip.$(LINUX_KMOD_SUFFIX)
-  AUTOLOAD:=$(call AutoLoad,10, \
-	lib80211 \
-	lib80211_crypt_wep \
-	lib80211_crypt_ccmp \
-	lib80211_crypt_tkip \
-  )
-endef
-
-define KernelPackage/lib80211/description
- Kernel modules for 802.11 Networking stack
- Includes:
- - lib80211
- - lib80211_crypt_wep
- - lib80211_crypt_tkip
- - lib80211_crytp_ccmp
-endef
-
-$(eval $(call KernelPackage,lib80211))
-
 define KernelPackage/net-airo
   SUBMENU:=$(WIRELESS_MENU)
   TITLE:=Cisco Aironet driver
-  DEPENDS:=@PCI_SUPPORT
+  DEPENDS:=@PCI_SUPPORT +@DRIVER_WEXT_SUPPORT
   KCONFIG:=CONFIG_AIRO
   FILES:=$(LINUX_DIR)/drivers/net/wireless/airo.$(LINUX_KMOD_SUFFIX)
   AUTOLOAD:=$(call AutoLoad,50,airo)
@@ -59,7 +26,7 @@ $(eval $(call KernelPackage,net-airo))
 define KernelPackage/net-hermes
   SUBMENU:=$(WIRELESS_MENU)
   TITLE:=Hermes 802.11b chipset support
-  DEPENDS:=@LINUX_2_6 @PCI_SUPPORT||PCMCIA_SUPPORT
+  DEPENDS:=@LINUX_2_6 @PCI_SUPPORT||PCMCIA_SUPPORT +@DRIVER_WEXT_SUPPORT
   KCONFIG:=CONFIG_HERMES \
 	CONFIG_HERMES_CACHE_FW_ON_INIT=n
   FILES:= \
@@ -125,7 +92,7 @@ $(eval $(call KernelPackage,net-hermes-pcmcia))
 define KernelPackage/net-prism54
   SUBMENU:=$(WIRELESS_MENU)
   TITLE:=Intersil Prism54 support
-  DEPENDS:=@PCI_SUPPORT
+  DEPENDS:=@PCI_SUPPORT +@DRIVER_WEXT_SUPPORT
   KCONFIG:=CONFIG_PRISM54
   FILES:=$(LINUX_DIR)/drivers/net/wireless/prism54/prism54.$(LINUX_KMOD_SUFFIX)
   AUTOLOAD:=$(call AutoLoad,60,prism54)

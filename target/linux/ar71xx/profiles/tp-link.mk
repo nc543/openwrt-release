@@ -16,6 +16,18 @@ endef
 
 $(eval $(call Profile,TLWR741NDV1))
 
+
+define Profile/TLWR740NV1
+    NAME:=TP-LINK TL-WR740N v1
+    PACKAGES:=kmod-ath9k wpad-mini
+endef
+
+define Profile/TLWR740NV1/Description
+    Package set optimized for the TP-LINK TL-WR740N v1.
+endef
+
+$(eval $(call Profile,TLWR740NV1))
+
 define Profile/TLWR841NV15
 	NAME:=TP-LINK TL-WR841N v1.5
 	PACKAGES:=kmod-ath9k wpad-mini
@@ -59,6 +71,17 @@ define Profile/TLWR941NDV2/Description
 endef
 
 $(eval $(call Profile,TLWR941NDV2))
+
+define Profile/TLWR941NDV3
+	NAME:=TP-LINK TL-WR941ND v3
+	PACKAGES:=kmod-ath9k wpad-mini
+endef
+
+define Profile/TLWR941NDV3/Description
+	Package set optimized for the TP-LINK TL-WR941ND v3.
+endef
+
+$(eval $(call Profile,TLWR941NDV3))
 
 define Profile/TLWR941NDV4
 	NAME:=TP-LINK TL-WR941ND v4

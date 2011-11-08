@@ -59,6 +59,21 @@ int sa_port(void *sa)
 	return ntohs(((struct sockaddr_in6 *)sa)->sin6_port);
 }
 
+int sa_rfc1918(void *sa)
+{
+	struct sockaddr_in *v4 = (struct sockaddr_in *)sa;
+	unsigned long a = htonl(v4->sin_addr.s_addr);
+
+	if( v4->sin_family == AF_INET )
+	{
+		return ((a >= 0x0A000000) && (a <= 0x0AFFFFFF)) ||
+		       ((a >= 0xAC100000) && (a <= 0xAC1FFFFF)) ||
+		       ((a >= 0xC0A80000) && (a <= 0xC0A8FFFF));
+	}
+
+	return 0;
+}
+
 /* Simple strstr() like function that takes len arguments for both haystack and needle. */
 char *strfind(char *haystack, int hslen, const char *needle, int ndlen)
 {
@@ -97,6 +112,7 @@ int select_intr(int n, fd_set *r, fd_set *w, fd_set *e, struct timeval *t)
 	/* unblock SIGCHLD */
 	sigemptyset(&ssn);
 	sigaddset(&ssn, SIGCHLD);
+	sigaddset(&ssn, SIGPIPE);
 	sigprocmask(SIG_UNBLOCK, &ssn, &sso);
 
 	rv = select(n, r, w, e, t);
@@ -116,8 +132,8 @@ int uh_tcp_send(struct client *cl, const char *buf, int len)
 	FD_ZERO(&writer);
 	FD_SET(cl->socket, &writer);
 
-	timeout.tv_sec = 0;
-	timeout.tv_usec = 500000;
+	timeout.tv_sec = cl->server->conf->network_timeout;
+	timeout.tv_usec = 0;
 
 	if( select(cl->socket + 1, NULL, &writer, NULL, &timeout) > 0 )
 	{
@@ -151,6 +167,9 @@ int uh_tcp_recv(struct client *cl, char *buf, int len)
 	int sz = 0;
 	int rsz = 0;
 
+	fd_set reader;
+	struct timeval timeout;
+
 	/* first serve data from peek buffer */
 	if( cl->peeklen > 0 )
 	{
@@ -164,22 +183,33 @@ int uh_tcp_recv(struct client *cl, char *buf, int len)
 	/* caller wants more */
 	if( len > 0 )
 	{
-#ifdef HAVE_TLS
-		if( cl->tls )
-			rsz = cl->server->conf->tls_recv(cl, (void *)&buf[sz], len);
-		else
-#endif
-			rsz = recv(cl->socket, (void *)&buf[sz], len, 0);
+		FD_ZERO(&reader);
+		FD_SET(cl->socket, &reader);
 
-		if( (sz == 0) || (rsz > 0) )
-			sz += rsz;
+		timeout.tv_sec  = cl->server->conf->network_timeout;
+		timeout.tv_usec = 0;
+
+		if( select(cl->socket + 1, &reader, NULL, NULL, &timeout) > 0 )
+		{
+#ifdef HAVE_TLS
+			if( cl->tls )
+				rsz = cl->server->conf->tls_recv(cl, (void *)&buf[sz], len);
+			else
+#endif
+				rsz = recv(cl->socket, (void *)&buf[sz], len, 0);
+
+			if( (sz == 0) || (rsz > 0) )
+				sz += rsz;
+		}
+		else if( sz == 0 )
+		{
+			sz = -1;
+		}
 	}
 
 	return sz;
 }
 
-#define ensure(x) \
-	do { if( x < 0 ) return -1; } while(0)
 
 int uh_http_sendhf(struct client *cl, int code, const char *summary, const char *fmt, ...)
 {
@@ -196,14 +226,14 @@ int uh_http_sendhf(struct client *cl, int code, const char *summary, const char 
 			code, summary
 	);
 
-	ensure(uh_tcp_send(cl, buffer, len));
+	ensure_ret(uh_tcp_send(cl, buffer, len));
 
 	va_start(ap, fmt);
 	len = vsnprintf(buffer, sizeof(buffer), fmt, ap);
 	va_end(ap);
 
-	ensure(uh_http_sendc(cl, buffer, len));
-	ensure(uh_http_sendc(cl, NULL, 0));
+	ensure_ret(uh_http_sendc(cl, buffer, len));
+	ensure_ret(uh_http_sendc(cl, NULL, 0));
 
 	return 0;
 }
@@ -219,14 +249,14 @@ int uh_http_sendc(struct client *cl, const char *data, int len)
 
 	if( len > 0 )
 	{
-	 	clen = snprintf(chunk, sizeof(chunk), "%X\r\n", len);
-		ensure(uh_tcp_send(cl, chunk, clen));
-		ensure(uh_tcp_send(cl, data, len));
-		ensure(uh_tcp_send(cl, "\r\n", 2));
+		clen = snprintf(chunk, sizeof(chunk), "%X\r\n", len);
+		ensure_ret(uh_tcp_send(cl, chunk, clen));
+		ensure_ret(uh_tcp_send(cl, data, len));
+		ensure_ret(uh_tcp_send(cl, "\r\n", 2));
 	}
 	else
 	{
-		ensure(uh_tcp_send(cl, "0\r\n\r\n", 5));
+		ensure_ret(uh_tcp_send(cl, "0\r\n\r\n", 5));
 	}
 
 	return 0;
@@ -244,9 +274,9 @@ int uh_http_sendf(
 	va_end(ap);
 
 	if( (req != NULL) && (req->version > 1.0) )
-		ensure(uh_http_sendc(cl, buffer, len));
+		ensure_ret(uh_http_sendc(cl, buffer, len));
 	else if( len > 0 )
-		ensure(uh_tcp_send(cl, buffer, len));
+		ensure_ret(uh_tcp_send(cl, buffer, len));
 
 	return 0;
 }
@@ -258,9 +288,9 @@ int uh_http_send(
 		len = strlen(buf);
 
 	if( (req != NULL) && (req->version > 1.0) )
-		ensure(uh_http_sendc(cl, buf, len));
+		ensure_ret(uh_http_sendc(cl, buf, len));
 	else if( len > 0 )
-		ensure(uh_tcp_send(cl, buf, len));
+		ensure_ret(uh_tcp_send(cl, buf, len));
 
 	return 0;
 }
@@ -376,6 +406,79 @@ int uh_b64decode(char *buf, int blen, const unsigned char *src, int slen)
 	return len;
 }
 
+static char * canonpath(const char *path, char *path_resolved)
+{
+	char path_copy[PATH_MAX];
+	char *path_cpy = path_copy;
+	char *path_res = path_resolved;
+
+	struct stat s;
+
+
+	/* relative -> absolute */
+	if( *path != '/' )
+	{
+		getcwd(path_copy, PATH_MAX);
+		strncat(path_copy, "/", PATH_MAX - strlen(path_copy));
+		strncat(path_copy, path, PATH_MAX - strlen(path_copy));
+	}
+	else
+	{
+		strncpy(path_copy, path, PATH_MAX);
+	}
+
+	/* normalize */
+	while( (*path_cpy != '\0') && (path_cpy < (path_copy + PATH_MAX - 2)) )
+	{
+		if( *path_cpy == '/' )
+		{
+			/* skip repeating / */
+			if( path_cpy[1] == '/' )
+			{
+				path_cpy++;
+				continue;
+			}
+
+			/* /./ or /../ */
+			else if( path_cpy[1] == '.' )
+			{
+				/* skip /./ */
+				if( (path_cpy[2] == '/') || (path_cpy[2] == '\0') )
+				{
+					path_cpy += 2;
+					continue;
+				}
+
+				/* collapse /x/../ */
+				else if( (path_cpy[2] == '.') &&
+				         ((path_cpy[3] == '/') || (path_cpy[3] == '\0'))
+				) {
+					while( (path_res > path_resolved) && (*--path_res != '/') )
+						;
+
+					path_cpy += 3;
+					continue;
+				}
+			}
+		}
+
+		*path_res++ = *path_cpy++;
+	}
+
+	/* remove trailing slash if not root / */
+	if( (path_res > (path_resolved+1)) && (path_res[-1] == '/') )
+		path_res--;
+	else if( path_res == path_resolved )
+		*path_res++ = '/';
+
+	*path_res = '\0';
+
+	/* test access */
+	if( !stat(path_resolved, &s) && (s.st_mode & S_IROTH) )
+		return path_resolved;
+
+	return NULL;
+}
 
 struct path_info * uh_path_lookup(struct client *cl, const char *url)
 {
@@ -387,9 +490,14 @@ struct path_info * uh_path_lookup(struct client *cl, const char *url)
 	char *docroot = cl->server->conf->docroot;
 	char *pathptr = NULL;
 
+	int slash = 0;
+	int no_sym = cl->server->conf->no_symlinks;
 	int i = 0;
 	struct stat s;
 
+	/* back out early if url is undefined */
+	if ( url == NULL )
+		return NULL;
 
 	memset(path_phys, 0, sizeof(path_phys));
 	memset(path_info, 0, sizeof(path_info));
@@ -425,15 +533,16 @@ struct path_info * uh_path_lookup(struct client *cl, const char *url)
 	}
 
 	/* create canon path */
-	for( i = strlen(buffer); i >= 0; i-- )
+	for( i = strlen(buffer), slash = (buffer[max(0, i-1)] == '/'); i >= 0; i-- )
 	{
 		if( (buffer[i] == 0) || (buffer[i] == '/') )
 		{
 			memset(path_info, 0, sizeof(path_info));
 			memcpy(path_info, buffer, min(i + 1, sizeof(path_info) - 1));
 
-			if( realpath(path_info, path_phys) )
-			{
+			if( no_sym ? realpath(path_info, path_phys)
+			           : canonpath(path_info, path_phys)
+			) {
 				memset(path_info, 0, sizeof(path_info));
 				memcpy(path_info, &buffer[i],
 					min(strlen(buffer) - i, sizeof(path_info) - 1));
@@ -475,18 +584,47 @@ struct path_info * uh_path_lookup(struct client *cl, const char *url)
 			memcpy(buffer, path_phys, sizeof(buffer));
 			pathptr = &buffer[strlen(buffer)];
 
-			for( i = 0; i < array_size(uh_index_files); i++ )
+			/* if requested url resolves to a directory and a trailing slash
+			   is missing in the request url, redirect the client to the same
+			   url with trailing slash appended */
+			if( !slash )
 			{
-				strncat(buffer, uh_index_files[i], sizeof(buffer));
+				uh_http_sendf(cl, NULL,
+					"HTTP/1.1 302 Found\r\n"
+					"Location: %s%s%s\r\n"
+					"Connection: close\r\n\r\n",
+						&path_phys[strlen(docroot)],
+						p.query ? "?" : "",
+						p.query ? p.query : ""
+				);
+
+				p.redirected = 1;
+			}
+			else if( cl->server->conf->index_file )
+			{
+				strncat(buffer, cl->server->conf->index_file, sizeof(buffer));
 
 				if( !stat(buffer, &s) && (s.st_mode & S_IFREG) )
 				{
 					memcpy(path_phys, buffer, sizeof(path_phys));
 					memcpy(&p.stat, &s, sizeof(p.stat));
-					break;
 				}
+			}
+			else
+			{
+				for( i = 0; i < array_size(uh_index_files); i++ )
+				{
+					strncat(buffer, uh_index_files[i], sizeof(buffer));
 
-				*pathptr = 0;
+					if( !stat(buffer, &s) && (s.st_mode & S_IFREG) )
+					{
+						memcpy(path_phys, buffer, sizeof(path_phys));
+						memcpy(&p.stat, &s, sizeof(p.stat));
+						break;
+					}
+
+					*pathptr = 0;
+				}
 			}
 
 			p.root = docroot;
@@ -499,8 +637,7 @@ struct path_info * uh_path_lookup(struct client *cl, const char *url)
 }
 
 
-static char uh_realms[UH_LIMIT_AUTHREALMS * sizeof(struct auth_realm)] = { 0 };
-static int uh_realm_count = 0;
+static struct auth_realm *uh_realms = NULL;
 
 struct auth_realm * uh_auth_add(char *path, char *user, char *pass)
 {
@@ -508,11 +645,8 @@ struct auth_realm * uh_auth_add(char *path, char *user, char *pass)
 	struct passwd *pwd;
 	struct spwd *spwd;
 
-	if( uh_realm_count < UH_LIMIT_AUTHREALMS )
+	if((new = (struct auth_realm *)malloc(sizeof(struct auth_realm))) != NULL)
 	{
-		new = (struct auth_realm *)
-			&uh_realms[uh_realm_count * sizeof(struct auth_realm)];
-
 		memset(new, 0, sizeof(struct auth_realm));
 
 		memcpy(new->path, path,
@@ -537,7 +671,7 @@ struct auth_realm * uh_auth_add(char *path, char *user, char *pass)
 			) {
 				memcpy(new->pass, pwd->pw_passwd,
 					min(strlen(pwd->pw_passwd), sizeof(new->pass) - 1));
-			}			
+			}
 		}
 
 		/* ordinary pwd */
@@ -547,10 +681,18 @@ struct auth_realm * uh_auth_add(char *path, char *user, char *pass)
 				min(strlen(pass), sizeof(new->pass) - 1));
 		}
 
-		uh_realm_count++;
+		if( new->pass[0] )
+		{
+			new->next = uh_realms;
+			uh_realms = new;
+
+			return new;
+		}
+
+		free(new);
 	}
 
-	return new;
+	return NULL;
 }
 
 int uh_auth_check(
@@ -567,11 +709,8 @@ int uh_auth_check(
 	protected = 0;
 
 	/* check whether at least one realm covers the requested url */
-	for( i = 0; i < uh_realm_count; i++ )
+	for( realm = uh_realms; realm; realm = realm->next )
 	{
-		realm = (struct auth_realm *)
-			&uh_realms[i * sizeof(struct auth_realm)];
-
 		rlen = strlen(realm->path);
 
 		if( (plen >= rlen) && !strncasecmp(pi->name, realm->path, rlen) )
@@ -611,11 +750,8 @@ int uh_auth_check(
 		if( user && pass )
 		{
 			/* find matching realm */
-			for( i = 0, realm = NULL; i < uh_realm_count; i++ )
+			for( realm = uh_realms; realm; realm = realm->next )
 			{
-				realm = (struct auth_realm *)
-					&uh_realms[i * sizeof(struct auth_realm)];
-
 				rlen = strlen(realm->path);
 
 				if( (plen >= rlen) &&
@@ -625,8 +761,6 @@ int uh_auth_check(
 					req->realm = realm;
 					break;
 				}
-
-				realm = NULL;
 			}
 
 			/* found a realm matching the username */
@@ -659,22 +793,17 @@ int uh_auth_check(
 }
 
 
-static char uh_listeners[UH_LIMIT_LISTENERS * sizeof(struct listener)] = { 0 };
-static char uh_clients[UH_LIMIT_CLIENTS * sizeof(struct client)] = { 0 };
-
-static int uh_listener_count = 0;
-static int uh_client_count = 0;
-
+static struct listener *uh_listeners = NULL;
+static struct client *uh_clients = NULL;
 
 struct listener * uh_listener_add(int sock, struct config *conf)
 {
 	struct listener *new = NULL;
 	socklen_t sl;
 
-	if( uh_listener_count < UH_LIMIT_LISTENERS )
+	if( (new = (struct listener *)malloc(sizeof(struct listener))) != NULL )
 	{
-		new = (struct listener *)
-			&uh_listeners[uh_listener_count * sizeof(struct listener)];
+		memset(new, 0, sizeof(struct listener));
 
 		new->socket = sock;
 		new->conf   = conf;
@@ -684,24 +813,22 @@ struct listener * uh_listener_add(int sock, struct config *conf)
 		memset(&(new->addr), 0, sl);
 		getsockname(sock, (struct sockaddr *) &(new->addr), &sl);
 
-		uh_listener_count++;
+		new->next = uh_listeners;
+		uh_listeners = new;
+
+		return new;
 	}
 
-	return new;
+	return NULL;
 }
 
 struct listener * uh_listener_lookup(int sock)
 {
 	struct listener *cur = NULL;
-	int i;
 
-	for( i = 0; i < uh_listener_count; i++ )
-	{
-		cur = (struct listener *) &uh_listeners[i * sizeof(struct listener)];
-
+	for( cur = uh_listeners; cur; cur = cur->next )
 		if( cur->socket == sock )
 			return cur;
-	}
 
 	return NULL;
 }
@@ -712,10 +839,9 @@ struct client * uh_client_add(int sock, struct listener *serv)
 	struct client *new = NULL;
 	socklen_t sl;
 
-	if( uh_client_count < UH_LIMIT_CLIENTS )
+	if( (new = (struct client *)malloc(sizeof(struct client))) != NULL )
 	{
-		new = (struct client *)
-			&uh_clients[uh_client_count * sizeof(struct client)];
+		memset(new, 0, sizeof(struct client));
 
 		new->socket = sock;
 		new->server = serv;
@@ -730,7 +856,8 @@ struct client * uh_client_add(int sock, struct listener *serv)
 		memset(&(new->servaddr), 0, sl);
 		getsockname(sock, (struct sockaddr *) &(new->servaddr), &sl);
 
-		uh_client_count++;
+		new->next = uh_clients;
+		uh_clients = new;
 	}
 
 	return new;
@@ -739,30 +866,72 @@ struct client * uh_client_add(int sock, struct listener *serv)
 struct client * uh_client_lookup(int sock)
 {
 	struct client *cur = NULL;
-	int i;
 
-	for( i = 0; i < uh_client_count; i++ )
-	{
-		cur = (struct client *) &uh_clients[i * sizeof(struct client)];
-
+	for( cur = uh_clients; cur; cur = cur->next )
 		if( cur->socket == sock )
 			return cur;
-	}
 
 	return NULL;
 }
 
 void uh_client_remove(int sock)
 {
-	struct client *del = uh_client_lookup(sock);
+	struct client *cur = NULL;
+	struct client *prv = NULL;
 
-	if( del )
+	for( cur = uh_clients; cur; prv = cur, cur = cur->next )
 	{
-		memmove(del, del + 1,
-			sizeof(uh_clients) - (int)((char *)del - uh_clients) - sizeof(struct client));
+		if( cur->socket == sock )
+		{
+			if( prv )
+				prv->next = cur->next;
+			else
+				uh_clients = cur->next;
 
-		uh_client_count--;
+			free(cur);
+			break;
+		}
 	}
 }
 
 
+#ifdef HAVE_CGI
+static struct interpreter *uh_interpreters = NULL;
+
+struct interpreter * uh_interpreter_add(const char *extn, const char *path)
+{
+	struct interpreter *new = NULL;
+
+	if( (new = (struct interpreter *)
+			malloc(sizeof(struct interpreter))) != NULL )
+	{
+		memset(new, 0, sizeof(struct interpreter));
+
+		memcpy(new->extn, extn, min(strlen(extn), sizeof(new->extn)-1));
+		memcpy(new->path, path, min(strlen(path), sizeof(new->path)-1));
+
+		new->next = uh_interpreters;
+		uh_interpreters = new;
+
+		return new;
+	}
+
+	return NULL;
+}
+
+struct interpreter * uh_interpreter_lookup(const char *path)
+{
+	struct interpreter *cur = NULL;
+	const char *e;
+
+	for( cur = uh_interpreters; cur; cur = cur->next )
+	{
+		e = &path[max(strlen(path) - strlen(cur->extn), 0)];
+
+		if( !strcmp(e, cur->extn) )
+			return cur;
+	}
+
+	return NULL;
+}
+#endif

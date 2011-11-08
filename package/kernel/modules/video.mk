@@ -11,7 +11,7 @@ VIDEO_MENU:=Video Support
 define KernelPackage/video-core
   SUBMENU:=$(VIDEO_MENU)
   TITLE=Video4Linux support
-  DEPENDS:=@PCI_SUPPORT||USB_SUPPORT
+  DEPENDS:=@PCI_SUPPORT||USB_SUPPORT +kmod-i2c-core
   KCONFIG:= \
 	CONFIG_MEDIA_SUPPORT=m \
 	CONFIG_VIDEO_DEV \
@@ -85,7 +85,7 @@ $(eval $(call KernelPackage,video-konica))
 define KernelPackage/video-ov511
 $(call KernelPackage/video/Depends,@LINUX_2_6 @USB_SUPPORT +kmod-usb-core)
   TITLE:=OV511 USB webcam support
-  KCONFIG:=CONFIG_VIDEO_OV511
+  KCONFIG:=CONFIG_USB_OV511
   FILES:=$(LINUX_DIR)/drivers/media/video/ov511.$(LINUX_KMOD_SUFFIX)
   AUTOLOAD:=$(call AutoLoad,70,ov511)
 endef
@@ -99,7 +99,7 @@ $(eval $(call KernelPackage,video-ov511))
 
 
 define KernelPackage/video-ovcamchip
-$(call KernelPackage/video/Depends,@LINUX_2_6 @USB_SUPPORT +kmod-i2c-core)
+$(call KernelPackage/video/Depends,@LINUX_2_6 @USB_SUPPORT +kmod-usb-core)
   TITLE:=OV6xxx/OV7xxx Camera Chip support
   KCONFIG:=CONFIG_VIDEO_OVCAMCHIP
   FILES:=$(LINUX_DIR)/drivers/media/video/ovcamchip/ovcamchip.$(LINUX_KMOD_SUFFIX)
@@ -150,7 +150,7 @@ endef
 $(eval $(call KernelPackage,video-pwc))
 
 define KernelPackage/video-uvc
-$(call KernelPackage/video/Depends,@LINUX_2_6 @USB_SUPPORT +kmod-usb-core)
+$(call KernelPackage/video/Depends,@LINUX_2_6 @USB_SUPPORT +kmod-usb-core +!TARGET_x86:kmod-input-core)
   TITLE:=USB Video Class (UVC) support
   KCONFIG:= CONFIG_USB_VIDEO_CLASS
   FILES:=$(LINUX_DIR)/drivers/media/video/uvc/uvcvideo.$(LINUX_KMOD_SUFFIX)

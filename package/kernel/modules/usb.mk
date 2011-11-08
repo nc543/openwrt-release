@@ -158,6 +158,24 @@ endef
 $(eval $(call KernelPackage,usb-octeon))
 
 
+define KernelPackage/usb-isp116x-hcd
+$(call KernelPackage/usb/Depends,@TARGET_ppc40x)
+  TITLE:=Support for the ISP116x USB Host Controller
+  KCONFIG:= \
+	CONFIG_USB_ISP116X_HCD \
+	CONFIG_USB_ISP116X_HCD_OF=y \
+	CONFIG_USB_ISP116X_HCD_PLATFORM=n
+  FILES:=$(LINUX_DIR)/drivers/usb/host/isp116x-hcd.$(LINUX_KMOD_SUFFIX)
+  AUTOLOAD:=$(call AutoLoad,50,isp116x-hcd)
+endef
+
+define KernelPackage/usb-isp116x-hcd/description
+  Kernel support for the ISP116X USB Host Controller
+endef
+
+$(eval $(call KernelPackage,usb-isp116x-hcd))
+
+
 define KernelPackage/usb2
 $(call KernelPackage/usb/Depends,)
   TITLE:=Support for USB2 controllers
@@ -449,6 +467,24 @@ define KernelPackage/usb-serial-visor/description
 endef
 
 $(eval $(call KernelPackage,usb-serial-visor))
+
+
+define KernelPackage/usb-serial-cypress-m8
+$(call KernelPackage/usb-serial/Depends,)
+  TITLE:=Support for CypressM8 USB-Serial
+  KCONFIG:=CONFIG_USB_SERIAL_CYPRESS_M8
+  FILES:=$(LINUX_DIR)/drivers/usb/serial/cypress_m8.$(LINUX_KMOD_SUFFIX)
+  AUTOLOAD:=$(call AutoLoad,65,cypress_m8)
+endef
+
+define KernelPackage/usb-serial-cypress-m8/description
+ Kernel support for devices with Cypress M8 USB to Serial chip
+ (for example, the Delorme Earthmate LT-20 GPS)
+ Supported microcontrollers in the CY4601 family are:
+       CY7C63741 CY7C63742 CY7C63743 CY7C64013
+endef
+
+$(eval $(call KernelPackage,usb-serial-cypress-m8))
 
 
 define KernelPackage/usb-serial-keyspan
@@ -764,7 +800,7 @@ $(eval $(call KernelPackage,usb-net-cdc-ether))
 define KernelPackage/usb-net-rndis
 $(call KernelPackage/usb-net/Depends,@LINUX_2_6 +kmod-usb-net-cdc-ether)
   TITLE:=Support for RNDIS connections
-  KCONFIG:=CONFIG_USB_NET_RNDIS_HOST 
+  KCONFIG:=CONFIG_USB_NET_RNDIS_HOST
   FILES:= $(LINUX_DIR)/drivers/$(USBNET_DIR)/rndis_host.$(LINUX_KMOD_SUFFIX)
   AUTOLOAD:=$(call AutoLoad,62,rndis_host)
 endef
@@ -779,7 +815,7 @@ $(eval $(call KernelPackage,usb-net-rndis))
 define KernelPackage/usb-hid
 $(call KernelPackage/usb/Depends,@LINUX_2_6 +!TARGET_x86:kmod-input-core +kmod-input-evdev +!TARGET_x86:kmod-hid)
   TITLE:=Support for USB Human Input Devices
-  KCONFIG:=CONFIG_HID_SUPPORT=y CONFIG_USB_HID
+  KCONFIG:=CONFIG_HID_SUPPORT=y CONFIG_USB_HID CONFIG_USB_HIDDEV=y
   FILES:=$(LINUX_DIR)/drivers/$(USBHID_DIR)/usbhid.ko
   AUTOLOAD:=$(call AutoLoad,70,usbhid)
 endef

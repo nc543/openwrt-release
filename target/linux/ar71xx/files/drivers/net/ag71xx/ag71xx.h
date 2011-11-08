@@ -25,6 +25,7 @@
 #include <linux/platform_device.h>
 #include <linux/ethtool.h>
 #include <linux/etherdevice.h>
+#include <linux/if_vlan.h>
 #include <linux/phy.h>
 #include <linux/skbuff.h>
 #include <linux/dma-mapping.h>
@@ -35,10 +36,8 @@
 #include <asm/mach-ar71xx/ar71xx.h>
 #include <asm/mach-ar71xx/platform.h>
 
-#define ETH_FCS_LEN	4
-
 #define AG71XX_DRV_NAME		"ag71xx"
-#define AG71XX_DRV_VERSION	"0.5.33"
+#define AG71XX_DRV_VERSION	"0.5.35"
 
 #define AG71XX_NAPI_WEIGHT	64
 #define AG71XX_OOM_REFILL	(1 + HZ/10)
@@ -51,10 +50,10 @@
 #define AG71XX_INT_INIT	(AG71XX_INT_ERR | AG71XX_INT_POLL)
 
 #define AG71XX_TX_FIFO_LEN	2048
-#define AG71XX_TX_MTU_LEN	1536
+#define AG71XX_TX_MTU_LEN	1540
 #define AG71XX_RX_PKT_RESERVE	64
 #define AG71XX_RX_PKT_SIZE	\
-	(AG71XX_RX_PKT_RESERVE + ETH_HLEN + ETH_FRAME_LEN + ETH_FCS_LEN)
+	(AG71XX_RX_PKT_RESERVE + ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN)
 
 #define AG71XX_TX_RING_SIZE	64
 #define AG71XX_TX_THRES_STOP	(AG71XX_TX_RING_SIZE - 4)
@@ -89,9 +88,9 @@ struct ag71xx_desc {
 
 struct ag71xx_buf {
 	struct sk_buff		*skb;
-	struct ag71xx_desc 	*desc;
+	struct ag71xx_desc	*desc;
 	dma_addr_t		dma_addr;
-	u32			pad;
+	unsigned long		timestamp;
 };
 
 struct ag71xx_ring {
@@ -136,8 +135,6 @@ struct ag71xx_napi_stats {
 
 struct ag71xx_debug {
 	struct dentry		*debugfs_dir;
-	struct dentry		*debugfs_int_stats;
-	struct dentry		*debugfs_napi_stats;
 
 	struct ag71xx_int_stats int_stats;
 	struct ag71xx_napi_stats napi_stats;
@@ -153,17 +150,22 @@ struct ag71xx {
 	struct napi_struct	napi;
 	u32			msg_enable;
 
+	struct ag71xx_desc	*stop_desc;
+	dma_addr_t		stop_desc_dma;
+
 	struct ag71xx_ring	rx_ring;
 	struct ag71xx_ring	tx_ring;
 
 	struct mii_bus		*mii_bus;
 	struct phy_device	*phy_dev;
+	void			*phy_priv;
 
 	unsigned int		link;
 	unsigned int		speed;
-	int 			duplex;
+	int			duplex;
 
 	struct work_struct	restart_work;
+	struct delayed_work	link_work;
 	struct timer_list	oom_timer;
 
 #ifdef CONFIG_AG71XX_DEBUG_FS
@@ -189,12 +191,12 @@ static inline struct ag71xx_platform_data *ag71xx_get_pdata(struct ag71xx *ag)
 
 static inline int ag71xx_desc_empty(struct ag71xx_desc *desc)
 {
-	return ((desc->ctrl & DESC_EMPTY) != 0);
+	return (desc->ctrl & DESC_EMPTY) != 0;
 }
 
 static inline int ag71xx_desc_pktlen(struct ag71xx_desc *desc)
 {
-	return (desc->ctrl & DESC_PKTLEN_M);
+	return desc->ctrl & DESC_PKTLEN_M;
 }
 
 /* Register offsets */
@@ -351,6 +353,7 @@ static inline void ag71xx_check_reg_offset(struct ag71xx *ag, unsigned reg)
 	switch (reg) {
 	case AG71XX_REG_MAC_CFG1 ... AG71XX_REG_MAC_MFL:
 	case AG71XX_REG_MAC_IFCTL ... AG71XX_REG_INT_STATUS:
+	case AG71XX_REG_MII_CFG:
 		break;
 
 	default:
@@ -431,7 +434,7 @@ static inline u32 ag71xx_mii_ctrl_rr(struct ag71xx *ag)
 	return __raw_readl(ag->mii_ctrl);
 }
 
-static void inline ag71xx_mii_ctrl_set_if(struct ag71xx *ag,
+static inline void ag71xx_mii_ctrl_set_if(struct ag71xx *ag,
 					  unsigned int mii_if)
 {
 	u32 t;
@@ -442,7 +445,7 @@ static void inline ag71xx_mii_ctrl_set_if(struct ag71xx *ag,
 	ag71xx_mii_ctrl_wr(ag, t);
 }
 
-static void inline ag71xx_mii_ctrl_set_speed(struct ag71xx *ag,
+static inline void ag71xx_mii_ctrl_set_speed(struct ag71xx *ag,
 					     unsigned int speed)
 {
 	u32 t;
@@ -496,5 +499,18 @@ static inline void ag71xx_debugfs_update_int_stats(struct ag71xx *ag,
 static inline void ag71xx_debugfs_update_napi_stats(struct ag71xx *ag,
 						    int rx, int tx) {}
 #endif /* CONFIG_AG71XX_DEBUG_FS */
+
+void ag71xx_ar7240_start(struct ag71xx *ag);
+void ag71xx_ar7240_stop(struct ag71xx *ag);
+int ag71xx_ar7240_init(struct ag71xx *ag);
+void ag71xx_ar7240_cleanup(struct ag71xx *ag);
+
+int ag71xx_mdio_mii_read(struct ag71xx_mdio *am, int addr, int reg);
+void ag71xx_mdio_mii_write(struct ag71xx_mdio *am, int addr, int reg, u16 val);
+
+u16 ar7240sw_phy_read(struct mii_bus *mii, unsigned phy_addr,
+		      unsigned reg_addr);
+int ar7240sw_phy_write(struct mii_bus *mii, unsigned phy_addr,
+		       unsigned reg_addr, u16 reg_val);
 
 #endif /* _AG71XX_H */

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 Jo-Philipp Wich <xm@subsignal.org>
+# Copyright (C) 2010-2011 Jo-Philipp Wich <xm@subsignal.org>
 #
 # This is free software, licensed under the GNU General Public License v2.
 # See /LICENSE for more information.
@@ -8,9 +8,10 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=uhttpd
-PKG_RELEASE:=7
+PKG_RELEASE:=23
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
+PKG_BUILD_DEPENDS := libcyassl liblua
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -66,6 +67,8 @@ endef
 
 define Package/uhttpd/conffiles
 /etc/config/uhttpd
+/etc/uhttpd.crt
+/etc/uhttpd.key
 endef
 
 define Package/uhttpd/install

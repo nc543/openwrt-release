@@ -17,7 +17,7 @@ else
   $(curdir)/builddirs-install:=. $(sort $(package-y))
 endif
 ifneq ($(IGNORE_ERRORS),)
-  $(curdir)/builddirs-ignore-compile:= $(if $(filter m y, $(IGNORE_ERRORS)),$(foreach m,$(IGNORE_ERRORS),$(package-$(m))),$(package-m))
+  $(curdir)/builddirs-ignore-compile:= $(if $(filter n m y, $(IGNORE_ERRORS)),$(foreach m,$(IGNORE_ERRORS),$(package-$(subst n,,$(m)))),$(package-m) $(package-))
 endif
 
 $(curdir)/install:=$(curdir)/install-cleanup
@@ -64,6 +64,14 @@ endif
 $(curdir)/rootfs-prepare: $(TMP_DIR)/.build
 	@-$(MAKE) package/preconfig
 	@if [ -d $(TOPDIR)/files ]; then \
+		( cd $(TOPDIR)/files; find -type f ) | \
+			( cd $(TARGET_DIR); while :; do \
+				read FILE; \
+				[ -z "$$FILE" ] && break; \
+				[ -L "$$FILE" ] || continue; \
+				echo "Removing symlink $(TARGET_DIR)/$$FILE"; \
+				rm -f "$$FILE"; \
+			done; ); \
 		$(CP) $(TOPDIR)/files/. $(TARGET_DIR); \
 	fi
 	@mkdir -p $(TARGET_DIR)/etc/rc.d

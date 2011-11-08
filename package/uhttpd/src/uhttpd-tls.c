@@ -35,12 +35,22 @@ SSL_CTX * uh_tls_ctx_init()
 
 int uh_tls_ctx_cert(SSL_CTX *c, const char *file)
 {
-	return SSL_CTX_use_certificate_file(c, file, SSL_FILETYPE_ASN1);
+	int rv;
+
+	if( (rv = SSL_CTX_use_certificate_file(c, file, SSL_FILETYPE_PEM)) < 1 )
+		rv = SSL_CTX_use_certificate_file(c, file, SSL_FILETYPE_ASN1);
+
+	return rv;
 }
 
 int uh_tls_ctx_key(SSL_CTX *c, const char *file)
 {
-	return SSL_CTX_use_PrivateKey_file(c, file, SSL_FILETYPE_ASN1);
+	int rv;
+
+	if( (rv = SSL_CTX_use_PrivateKey_file(c, file, SSL_FILETYPE_PEM)) < 1 )
+		rv = SSL_CTX_use_PrivateKey_file(c, file, SSL_FILETYPE_ASN1);
+
+	return rv;
 }
 
 void uh_tls_ctx_free(struct listener *l)
@@ -60,12 +70,14 @@ void uh_tls_client_accept(struct client *c)
 
 int uh_tls_client_recv(struct client *c, void *buf, int len)
 {
-	return SSL_read(c->tls, buf, len);
+	int rv = SSL_read(c->tls, buf, len);
+	return (rv > 0) ? rv : -1;
 }
 
 int uh_tls_client_send(struct client *c, void *buf, int len)
 {
-	return SSL_write(c->tls, buf, len);
+	int rv = SSL_write(c->tls, buf, len);
+	return (rv > 0) ? rv : -1;
 }
 
 void uh_tls_client_close(struct client *c)

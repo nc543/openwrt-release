@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2006-2010 OpenWrt.org
+# Copyright (C) 2006-2011 OpenWrt.org
 #
 # This is free software, licensed under the GNU General Public License v2.
 # See /LICENSE for more information.
@@ -10,7 +10,7 @@ include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=iptables
 PKG_VERSION:=1.4.6
-PKG_RELEASE:=2
+PKG_RELEASE:=3.1
 
 PKG_MD5SUM:=c67cf30e281a924def6426be0973df56
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
@@ -19,7 +19,7 @@ PKG_SOURCE_URL:=http://www.netfilter.org/projects/iptables/files \
 	ftp://ftp.de.netfilter.org/pub/netfilter/iptables/ \
 	ftp://ftp.no.netfilter.org/pub/netfilter/iptables/
 
-PKG_FIXUP:=libtool
+PKG_FIXUP:=autoreconf
 
 include $(INCLUDE_DIR)/package.mk
 ifeq ($(DUMP),)
@@ -44,19 +44,32 @@ define Package/iptables
 $(call Package/iptables/Default)
   TITLE:=IPv4 firewall administration tool
   MENU:=1
-  DEPENDS+= +kmod-ipt-core +libiptc +libxtables
+  DEPENDS+= +kmod-ipt-core +libip4tc +libxtables
 endef
 
 define Package/iptables/description
 IPv4 firewall administration tool.
-Includes support for:
-- comment
-- limit
-- LOG
-- mac
-- multiport
-- REJECT
-- TCPMSS
+
+ Matches:
+  - icmp
+  - tcp
+  - udp
+  - comment
+  - limit
+  - mac
+  - multiport
+
+ Targets:
+  - ACCEPT
+  - DROP
+  - REJECT
+  - LOG
+  - TCPMSS
+
+ Tables:
+  - filter
+  - mangle
+
 endef
 
 define Package/iptables-mod-conntrack
@@ -66,10 +79,17 @@ endef
 
 define Package/iptables-mod-conntrack/description
 Basic iptables extensions for connection tracking.
-Includes:
-- state
-- raw
-- NOTRACK
+
+ Matches:
+  - state
+  - conntrack
+
+ Targets:
+  - NOTRACK
+
+ Tables:
+  - raw
+
 endef
 
 define Package/iptables-mod-conntrack-extra
@@ -79,10 +99,16 @@ endef
 
 define Package/iptables-mod-conntrack-extra/description
 Extra iptables extensions for connection tracking.
-Includes:
-- libipt_conntrack
-- libipt_helper
-- libipt_connmark/CONNMARK
+
+ Matches:
+  - connbytes
+  - connmark
+  - recent
+  - helper
+
+ Targets:
+  - CONNMARK
+
 endef
 
 define Package/iptables-mod-filter
@@ -92,9 +118,12 @@ endef
 
 define Package/iptables-mod-filter/description
 iptables extensions for packet content inspection.
-Includes:
-- libipt_string
-- libipt_layer7
+Includes support for:
+
+ Matches:
+  - layer7
+  - string
+
 endef
 
 define Package/iptables-mod-imq
@@ -104,8 +133,10 @@ endef
 
 define Package/iptables-mod-imq/description
 iptables extension for IMQ support.
-Includes:
-- libipt_IMQ
+
+ Targets:
+  - IMQ
+
 endef
 
 define Package/iptables-mod-ipopt
@@ -115,18 +146,26 @@ endef
 
 define Package/iptables-mod-ipopt/description
 iptables extensions for matching/changing IP packet options.
-Includes:
-- libipt_CLASSIFY
-- libipt_dscp/DSCP
-- libipt_ecn/ECN
-- libipt_length
-- libipt_mac
-- libipt_mark/MARK
-- libipt_statistic
-- libipt_tcpmms
-- libipt_tos/TOS
-- libipt_ttl/TTL
-- libipt_unclean
+
+ Matches:
+  - dscp
+  - hashlimit
+  - ecn
+  - length
+  - mark
+  - statistic
+  - tcpmss
+  - time
+  - unclean
+  - hl
+
+ Targets:
+  - DSCP
+  - CLASSIFY
+  - ECN
+  - MARK
+  - HL
+
 endef
 
 define Package/iptables-mod-ipsec
@@ -136,10 +175,12 @@ endef
 
 define Package/iptables-mod-ipsec/description
 iptables extensions for matching ipsec traffic.
-Includes:
-- libipt_ah
-- libipt_esp
-- libipt_policy
+
+ Matches:
+  - ah
+  - esp
+  - policy
+
 endef
 
 define Package/iptables-mod-ipset
@@ -149,9 +190,13 @@ endef
 
 define Package/iptables-mod-ipset/description
 IPset iptables extensions.
-Includes:
-- libipt_set
-- libipt_SET
+
+ Matches:
+  - set
+
+ Targets:
+  - SET
+
 endef
 
 define Package/iptables-mod-nat
@@ -161,10 +206,15 @@ endef
 
 define Package/iptables-mod-nat/description
 iptables extensions for basic NAT targets.
-Includes:
-- MASQUERADE
-- SNAT
-- DNAT
+
+ Targets:
+  - SNAT
+  - DNAT
+  - MASQUERADE
+
+ Tables:
+  - nat
+
 endef
 
 define Package/iptables-mod-nat-extra
@@ -174,8 +224,12 @@ endef
 
 define Package/iptables-mod-nat-extra/description
 iptables extensions for extra NAT targets.
-Includes:
-- REDIRECT
+
+ Targets:
+  - MIRROR
+  - NETMAP
+  - REDIRECT
+
 endef
 
 define Package/iptables-mod-ulog
@@ -185,8 +239,23 @@ endef
 
 define Package/iptables-mod-ulog/description
 iptables extensions for user-space packet logging.
-Includes:
-- libipt_ULOG
+
+ Targets:
+  - ULOG
+
+endef
+
+define Package/iptables-mod-hashlimit
+$(call Package/iptables/Module, +kmod-ipt-hashlimit)
+  TITLE:=hashlimit matching
+endef
+
+define Package/iptables-mod-hashlimit/description
+iptables extensions for hashlimit matching
+
+ Matches:
+  - hashlimit
+
 endef
 
 define Package/iptables-mod-iprange
@@ -196,8 +265,10 @@ endef
 
 define Package/iptables-mod-iprange/description
 iptables extensions for matching ip ranges.
-Includes:
-- libipt_iprange
+
+ Matches:
+  - iprange
+
 endef
 
 define Package/iptables-mod-extra
@@ -207,21 +278,30 @@ endef
 
 define Package/iptables-mod-extra/description
 Other extra iptables extensions.
-Includes:
-- libipt_owner
-- libipt_physdev
-- libipt_pkttype
-- libipt_recent
+
+ Matches:
+  - condition
+  - owner
+  - physdev (if ebtables is enabled)
+  - pkttype
+  - quota
+
 endef
 
 define Package/iptables-utils
 $(call Package/iptables/Module, )
-  TITLE:=iptables save and restore utilities
+  TITLE:=iptables save and restore utilities (deprecated)
+endef
+
+define Package/iptables-utils/description
+This is a dummy package for backwards compatibility reasons.
+Everything that used to be provided by this package is part
+of iptables now.
 endef
 
 define Package/ip6tables
 $(call Package/iptables/Default)
-  DEPENDS:=+kmod-ip6tables
+  DEPENDS:=+kmod-ip6tables +libip6tc +libxtables
   CATEGORY:=IPv6
   TITLE:=IPv6 firewall administration tool
   MENU:=1
@@ -231,14 +311,35 @@ define Package/ip6tables-utils
 $(call Package/iptables/Default)
   DEPENDS:=ip6tables
   CATEGORY:=IPv6
-  TITLE:=ip6tables save and restore utilities
+  TITLE:=ip6tables save and restore utilities (deprecated)
+endef
+
+define Package/ip6tables-utils/description
+This is a dummy package for backwards compatibility reasons.
+Everything that used to be provided by this package is part
+of ip6tables now.
 endef
 
 define Package/libiptc
 $(call Package/iptables/Default)
   SECTION:=libs
   CATEGORY:=Libraries
-  TITLE:=IPv4/IPv6 firewall - shared libiptc library
+  DEPENDS:=+libip4tc +libip6tc
+  TITLE:=IPv4/IPv6 firewall - shared libiptc library (compatibility stub)
+endef
+
+define Package/libip4tc
+$(call Package/iptables/Default)
+  SECTION:=libs
+  CATEGORY:=Libraries
+  TITLE:=IPv4 firewall - shared libiptc library
+endef
+
+define Package/libip6tc
+$(call Package/iptables/Default)
+  SECTION:=libs
+  CATEGORY:=Libraries
+  TITLE:=IPv6 firewall - shared libiptc library
 endef
 
 define Package/libxtables
@@ -293,8 +394,8 @@ define Build/InstallDev
 
 	$(CP) $(PKG_INSTALL_DIR)/usr/include/* $(1)/usr/include/
 	$(INSTALL_DIR) $(1)/usr/lib
-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libxtables.{a,so*} $(1)/usr/lib/
-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libip*tc.{a,so*} $(1)/usr/lib/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libxtables.so* $(1)/usr/lib/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libip*tc.so* $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libipq.a $(1)/usr/lib/
 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/xtables.pc $(1)/usr/lib/pkgconfig/
@@ -304,6 +405,8 @@ endef
 define Package/iptables/install
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/iptables $(1)/usr/sbin/
+	$(LN) iptables $(1)/usr/sbin/iptables-save
+	$(LN) iptables $(1)/usr/sbin/iptables-restore
 	$(INSTALL_DIR) $(1)/usr/lib/iptables
 	(cd $(PKG_INSTALL_DIR)/usr/lib/iptables ; \
 		for m in $(patsubst xt_%,ipt_%,$(IPT_BUILTIN)) $(patsubst ipt_%,xt_%,$(IPT_BUILTIN)); do \
@@ -315,13 +418,14 @@ define Package/iptables/install
 endef
 
 define Package/iptables-utils/install
-	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/iptables-{save,restore} $(1)/usr/sbin/
+	true
 endef
 
 define Package/ip6tables/install
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/ip6tables $(1)/usr/sbin/
+	$(LN) ip6tables $(1)/usr/sbin/ip6tables-save
+	$(LN) ip6tables $(1)/usr/sbin/ip6tables-restore
 	$(INSTALL_DIR) $(1)/usr/lib/iptables
 	(cd $(PKG_INSTALL_DIR)/usr/lib/iptables ; \
 		$(CP) libip6t_*.so $(1)/usr/lib/iptables/ \
@@ -329,13 +433,22 @@ define Package/ip6tables/install
 endef
 
 define Package/ip6tables-utils/install
-	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/ip6tables-{save,restore} $(1)/usr/sbin/
+	true
 endef
 
 define Package/libiptc/install
 	$(INSTALL_DIR) $(1)/usr/lib
-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libip*tc.so* $(1)/usr/lib/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libiptc.so* $(1)/usr/lib/
+endef
+
+define Package/libip4tc/install
+	$(INSTALL_DIR) $(1)/usr/lib
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libip4tc.so* $(1)/usr/lib/
+endef
+
+define Package/libip6tc/install
+	$(INSTALL_DIR) $(1)/usr/lib
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libip6tc.so* $(1)/usr/lib/
 endef
 
 define Package/libxtables/install
@@ -368,6 +481,7 @@ $(eval $(call BuildPlugin,iptables-mod-conntrack,$(IPT_CONNTRACK-m)))
 $(eval $(call BuildPlugin,iptables-mod-conntrack-extra,$(IPT_CONNTRACK_EXTRA-m)))
 $(eval $(call BuildPlugin,iptables-mod-extra,$(IPT_EXTRA-m)))
 $(eval $(call BuildPlugin,iptables-mod-filter,$(IPT_FILTER-m),$(L7_INSTALL)))
+$(eval $(call BuildPlugin,iptables-mod-hashlimit,$(IPT_HASHLIMIT-m)))
 $(eval $(call BuildPlugin,iptables-mod-imq,$(IPT_IMQ-m)))
 $(eval $(call BuildPlugin,iptables-mod-ipopt,$(IPT_IPOPT-m)))
 $(eval $(call BuildPlugin,iptables-mod-ipsec,$(IPT_IPSEC-m)))
@@ -379,4 +493,6 @@ $(eval $(call BuildPlugin,iptables-mod-ulog,$(IPT_ULOG-m)))
 $(eval $(call BuildPackage,ip6tables))
 $(eval $(call BuildPackage,ip6tables-utils))
 $(eval $(call BuildPackage,libiptc))
+$(eval $(call BuildPackage,libip4tc))
+$(eval $(call BuildPackage,libip6tc))
 $(eval $(call BuildPackage,libxtables))

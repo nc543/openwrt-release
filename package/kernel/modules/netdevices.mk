@@ -146,6 +146,22 @@ endef
 $(eval $(call KernelPackage,8139too))
 
 
+define KernelPackage/8139cp
+  SUBMENU:=$(NETWORK_DEVICES_MENU)
+  TITLE:=RealTek RTL-8139C+ PCI Fast Ethernet Adapter kernel support
+  DEPENDS:=@TARGET_x86
+  KCONFIG:=CONFIG_8139CP
+  FILES:=$(LINUX_DIR)/drivers/net/8139cp.$(LINUX_KMOD_SUFFIX)
+  AUTOLOAD:=$(call AutoLoad,50,8139cp)
+endef
+
+define KernelPackage/8139cp/description
+ Kernel module for RealTek RTL-8139C+ PCI Fast Ethernet adapters.
+endef
+
+$(eval $(call KernelPackage,8139cp))
+
+
 define KernelPackage/r8169
   SUBMENU:=$(NETWORK_DEVICES_MENU)
   TITLE:=RealTek RTL-8169 PCI Gigabit Ethernet Adapter kernel support
@@ -193,6 +209,13 @@ endef
 
 define KernelPackage/e100/description
  Kernel modules for Intel(R) PRO/100+ Ethernet adapters.
+endef
+
+define KernelPackage/e100/install
+	$(INSTALL_DIR) $(1)/lib/firmware/e100
+	$(foreach file,d101m_ucode.bin d101s_ucode.bin d102e_ucode.bin, \
+		$(TARGET_CROSS)objcopy -Iihex -Obinary $(LINUX_DIR)/firmware/e100/$(file).ihex $(1)/lib/firmware/e100/$(file); \
+	)
 endef
 
 $(eval $(call KernelPackage,e100))
@@ -375,3 +398,33 @@ define KernelPackage/macvlan/description
 endef
 
 $(eval $(call KernelPackage,macvlan))
+
+define KernelPackage/dummy
+  SUBMENU:=$(NETWORK_DEVICES_MENU)
+  TITLE:=Dummy network device
+  KCONFIG:=CONFIG_DUMMY
+  FILES:=$(LINUX_DIR)/drivers/net/dummy.$(LINUX_KMOD_SUFFIX)
+  AUTOLOAD:=$(call AutoLoad,34,dummy)
+endef
+
+define KernelPackage/dummy/description
+  The dummy network device
+endef
+
+$(eval $(call KernelPackage,dummy))
+
+define KernelPackage/ifb
+  SUBMENU:=$(NETWORK_DEVICES_MENU)
+  TITLE:=Intermediate Functional Block support
+  KCONFIG:= \
+	CONFIG_IFB \
+	CONFIG_NET_CLS=y
+  FILES:=$(LINUX_DIR)/drivers/net/ifb.ko
+  AUTOLOAD:=$(call AutoLoad,34,ifb)
+endef
+
+define KernelPackage/ifb/description
+  The Intermediate Functional Block
+endef
+
+$(eval $(call KernelPackage,ifb))

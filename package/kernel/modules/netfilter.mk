@@ -236,7 +236,7 @@ $(call KernelPackage/ipt/Depends,)
   FILES:= \
 	$(LINUX_DIR)/drivers/net/imq.$(LINUX_KMOD_SUFFIX) \
 	$(foreach mod,$(IPT_IMQ-m),$(LINUX_DIR)/net/$(mod).$(LINUX_KMOD_SUFFIX))
-  AUTOLOAD:=$(call AutoLoad,45,$(notdir \
+  AUTOLOAD:=$(call AutoLoad,46,$(notdir \
 	imq \
 	$(IPT_IMQ-m) \
   ))
@@ -493,3 +493,17 @@ define KernelPackage/nf-conntrack-netlink/description
 endef
 
 $(eval $(call KernelPackage,nf-conntrack-netlink))
+
+define KernelPackage/ipt-hashlimit
+$(call KernelPackage/ipt/Depends,)
+  TITLE:=Netfilter hashlimit match
+  FILES:=$(LINUX_DIR)/net/netfilter/xt_hashlimit.$(LINUX_KMOD_SUFFIX)
+  KCONFIG:=$(KCONFIG_IPT_HASHLIMIT)
+  AUTOLOAD:=$(call AutoLoad,50,xt_hashlimit)
+endef
+
+define KernelPackage/ipt-hashlimit/description
+ Kernel modules support for the hashlimit bucket match module
+endef
+
+$(eval $(call KernelPackage,ipt-hashlimit))
